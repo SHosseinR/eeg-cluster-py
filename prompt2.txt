@@ -274,4 +274,84 @@ Using the NSGA-II algorithm, you should search for optimal combinations of node 
 By optimal combinations of node and frequency, I mean this. 
 
 In each run (single run among lots of runs of the genetic algorithm), you choose node (of graph) and frequency. so for one subject (obviously genetic algorithm runs independently for each subject), there is one adjacency matrix here. 
-here now stimulation happens to drive Patient to Healthy. 
+here now stimulation happens to drive Patient to Healthy. It's state space dynamics. 
+Xdot = A*X - A*Xbar + B*U, X0 = Xbar ; Xbar is average activation of signals that one Patient. you have to load it from .set files. 
+filtered_epochs = process_subject_epochs(subject['data'], subject['fs'])
+def process_subject_epochs(data, fs):
+    """
+    Complete epoch processing pipeline for a single subject.
+    
+    Parameters
+    ----------
+    data : ndarray, shape (n_channels, n_samples)
+        Continuous EEG data
+    fs : float
+        Sampling frequency
+        
+    Returns
+    -------
+    filtered_epochs : dict
+        Dictionary mapping band names to filtered epochs
+        Each value has shape (n_epochs, n_channels, n_samples)
+    """
+(i put this for you to know the input output. here we don't need epochs. just average over all time is enough) 
+#
+back to equation: Xdot = A*X - A*Xbar + B*U, X0 = Xbar 
+-A*Xbar exists to that with zero input, no change happens. 
+and here U and B. based on the node selected (in genetic algorithm), apply U value 1, time 1 second (take from config.py), and that's it. (you A is obviously the adjacency matrix of the frequency band selected by algorithm.) (normalize A in order to have maximum eigenvalue less than 0. so the dynamic won't be unstable. you can do this like this:
+w, _ = eig(A)
+l = np.abs(w).max()
+A_norm = A / (c + l)
+A_norm = A_norm - np.eye(A.shape[0])
+)
+the simulation is easy too. like this ( i copied from somewhere else:)
+
+    # state vectors to float if they're bools
+    if type(x0[0]) == np.bool_:
+        x0 = x0.astype(float)
+
+    # check dimensions of states
+    if x0.ndim == 1:
+        x0 = x0.reshape(-1, 1)
+
+    # Simulate trajectory
+    T = np.size(U, 1)
+    N = np.size(A_norm, 0)
+
+    # initialize x
+    x = np.zeros((N, T))
+    xt = x0
+
+    for t in range(T):
+        x[:, t] = xt[:, 0]
+        dt = np.matmul(A_norm, xt) + np.matmul(B, np.reshape(U[:, t], (N, 1)))  # state equation
+        dt = dt * 0.001
+        xt = dt + xt
+# but this is for standard state space. -A*Xbar does not exist. same. you can change code as you want.  
+
+then new state X is activation of nodes after stimulation. now derive a array of size n_nodes. each element represents how much that node, increased or decreased after stimulation. (the ratio. 1 for no change.)
+
+now is the neat part. we need to apply changes to adjacency matrix. (like plasticity in brain :)).
+each edge in the matrix (suppose E(n,m)) gets multiplied by h = (R n)*(R m). (R n) is ratio of increase in node n and so as (R m) (node m). 
+now normalize connectivity (with the normalize_connectivity_matrix function in connectivity.py) and re-compute the 3 measures. done! now you can calculate the 3 objectives of genetic algorithm. 
+# hint of the function schema:
+def normalize_connectivity_matrix(matrix):
+    """
+    Normalize connectivity matrix to [0, 1] range.
+    
+    Parameters
+    ----------
+    matrix : ndarray, shape (n_channels, n_channels)
+        Connectivity matrix
+        
+    Returns
+    -------
+    normalized : ndarray
+        Normalized connectivity matrix
+    """
+##
+
+run the NSGA algorithm for each Patient subject. at last each subject would have a result of node and frequency parameter. save the results. give a plot too. histogram of nodes (with channel name legend), histogram of frequency, and 2d histogram of node x frequency with count value as color heat map of each cell. 
+
+#
+now give me the full implementation of above. Modular code. you can give multiple files for modular code.
