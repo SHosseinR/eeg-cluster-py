@@ -44,7 +44,7 @@ def compute_plv(epochs, fs, fmin, fmax):
         fmin=fmin,
         fmax=fmax,
         faverage=True,
-        verbose=False
+        verbose='ERROR'
     )
     
     # Get connectivity matrix (average across frequency)
@@ -91,7 +91,7 @@ def compute_psi(epochs, fs, fmin, fmax):
         sfreq=fs,
         fmin=fmin,
         fmax=fmax,
-        verbose=False
+        verbose='ERROR'
     )
 
     # Get connectivity matrix
@@ -154,7 +154,7 @@ def compute_granger_causality(epochs, fs, fmin, fmax):
         fmin=fmin,
         fmax=fmax,
         faverage=True,
-        verbose=False
+        verbose='ERROR'
     )
     
     # Get connectivity matrix
@@ -213,7 +213,7 @@ def compute_granger_causality_tr(epochs, fs, fmin, fmax):
         fmin=fmin,
         fmax=fmax,
         faverage=True,
-        verbose=False
+        verbose='ERROR'
     )
     
     # Get connectivity matrix

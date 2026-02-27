@@ -10,6 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
 from config import N_FEATURES_COMBINATION, N_FOLDS, N_TOP_FEATURES, RANDOM_STATE
+from tqdm import tqdm
 
 def evaluate_feature_triplet(X, y, feature_indices, n_folds=N_FOLDS, random_state=RANDOM_STATE):
     """
@@ -100,7 +101,7 @@ def find_best_feature_triplets(X, y, feature_names, n_top=N_TOP_FEATURES, verbos
         List of all results (for further analysis)
     """
     n_features = X.shape[1]
-    
+    # print(f'{n_features=}')
     # Generate all combinations of 3 features
     all_triplets = list(combinations(range(n_features), N_FEATURES_COMBINATION))
     n_triplets = len(all_triplets)
@@ -112,7 +113,7 @@ def find_best_feature_triplets(X, y, feature_names, n_top=N_TOP_FEATURES, verbos
     
     results = []
     
-    for i, triplet in enumerate(all_triplets):
+    for i, triplet in tqdm(enumerate(all_triplets)):
         if verbose and (i + 1) % 50 == 0:
             print(f"Progress: {i+1}/{n_triplets} ({(i+1)/n_triplets*100:.1f}%)")
         

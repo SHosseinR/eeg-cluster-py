@@ -11,7 +11,7 @@ from datetime import datetime
 from config import (
     HC_DATA_PATH, PATIENT_DATA_PATH, OUTPUT_DIR,
     FREQUENCY_BANDS, CONNECTIVITY_METHODS, SELECTED_METHOD,
-    NETWORK_MEASURES
+    NETWORK_MEASURES, STEP_TO_START
 )
 from data_loader import load_group_data, verify_data_consistency
 from signal_processing import process_subject_epochs
@@ -61,101 +61,113 @@ def main():
     print("\n" + "="*80)
     print("STEP 1: LOADING DATA")
     print("="*80)
-    
-    healthy_data = load_group_data(HC_DATA_PATH, group_name="Healthy")
-    patient_data = load_group_data(PATIENT_DATA_PATH, group_name="Patient")
-    
-    print(f"\nLoaded:")
-    print(f"  Healthy: {len(healthy_data)} subjects")
-    print(f"  Patient: {len(patient_data)} subjects")
-    
-    # Verify consistency
-    all_data = healthy_data + patient_data
-    if not verify_data_consistency(all_data):
-        raise ValueError("Data consistency check failed!")
-    
+
+    if STEP_TO_START <= 1:
+        healthy_data = load_group_data(HC_DATA_PATH, group_name="Healthy")
+        patient_data = load_group_data(PATIENT_DATA_PATH, group_name="Patient")
+        
+        print(f"\nLoaded:")
+        print(f"  Healthy: {len(healthy_data)} subjects")
+        print(f"  Patient: {len(patient_data)} subjects")
+        
+        # Verify consistency
+        all_data = healthy_data + patient_data
+        if not verify_data_consistency(all_data):
+            raise ValueError("Data consistency check failed!")
+        
     # ========================================================================
     # STEP 2: SIGNAL PROCESSING (EPOCHING & FILTERING)
     # ========================================================================
     print("\n" + "="*80)
     print("STEP 2: SIGNAL PROCESSING")
     print("="*80)
-    
-    all_subjects_filtered = {}
-    
-    for group_data, group_name in [(healthy_data, "Healthy"), (patient_data, "Patient")]:
-        all_subjects_filtered[group_name] = {}
+
+    if STEP_TO_START <= 2:
+        all_subjects_filtered = {}
         
-        for subject in group_data:
-            subject_id = subject['subject_id']
-            print(f"\nProcessing {subject_id} ({group_name})...")
+        for group_data, group_name in [(healthy_data, "Healthy"), (patient_data, "Patient")]:
+            all_subjects_filtered[group_name] = {}
             
-            filtered_epochs = process_subject_epochs(subject['data'], subject['fs'])
-            all_subjects_filtered[group_name][subject_id] = {
-                'filtered_epochs': filtered_epochs,
-                'fs': subject['fs'],
-                'channels': subject['channels']
-            }
-    
+            for subject in group_data:
+                subject_id = subject['subject_id']
+                print(f"\nProcessing {subject_id} ({group_name})...")
+                
+                filtered_epochs = process_subject_epochs(subject['data'], subject['fs'])
+                all_subjects_filtered[group_name][subject_id] = {
+                    'filtered_epochs': filtered_epochs,
+                    'fs': subject['fs'],
+                    'channels': subject['channels']
+                }
+        
     # ========================================================================
     # STEP 3: CONNECTIVITY ANALYSIS
     # ========================================================================
     print("\n" + "="*80)
     print("STEP 3: CONNECTIVITY ANALYSIS")
     print("="*80)
-    
-    connectivity_matrices = {}
-    
-    for group_name, subjects_dict in all_subjects_filtered.items():
-        connectivity_matrices[group_name] = {}
+
+    if STEP_TO_START <= 3:
+        connectivity_matrices = {}
         
-        for subject_id, subject_data in subjects_dict.items():
-            print(f"\nComputing connectivity for {subject_id} ({group_name})...")
+        for group_name, subjects_dict in all_subjects_filtered.items():
+            connectivity_matrices[group_name] = {}
             
-            conn_results = compute_all_connectivity(
-                subject_data['filtered_epochs'],
-                subject_data['fs'],
-                methods=CONNECTIVITY_METHODS
-            )
-            
-            connectivity_matrices[group_name][subject_id] = conn_results
-    
-    # Save connectivity matrices
-    np.save(os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'), 
-            connectivity_matrices, allow_pickle=True)
-    print(f"\nSaved connectivity matrices")
-    
+            for subject_id, subject_data in subjects_dict.items():
+                print(f"\nComputing connectivity for {subject_id} ({group_name})...")
+                
+                conn_results = compute_all_connectivity(
+                    subject_data['filtered_epochs'],
+                    subject_data['fs'],
+                    methods=CONNECTIVITY_METHODS
+                )
+                
+                connectivity_matrices[group_name][subject_id] = conn_results
+        
+        # Save connectivity matrices
+        np.save(os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'), 
+                connectivity_matrices, allow_pickle=True)
+        print(f"\nSaved connectivity matrices")
+        
     # ========================================================================
     # STEP 4: VISUALIZATIONS 1-3
     # ========================================================================
     print("\n" + "="*80)
     print("STEP 4: CONNECTIVITY VISUALIZATIONS")
     print("="*80)
-    
-    # Visualization 1: Average connectivity matrices per method
-    print("\nCreating Visualization 1: Connectivity matrices per method...")
-    plot_connectivity_matrices(
-        connectivity_matrices,
-        CONNECTIVITY_METHODS,
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz1_connectivity_matrices.png')
-    )
-    
-    # Visualization 2: P-value matrices per method
-    print("\nCreating Visualization 2: P-value matrices per method...")
-    plot_pvalue_matrices(
-        connectivity_matrices,
-        CONNECTIVITY_METHODS,
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz2_pvalue_matrices.png')
-    )
-    
-    # Visualization 3: P-value matrices per band
-    print("\nCreating Visualization 3: P-value matrices per band...")
-    plot_pvalue_matrices_per_band(
-        connectivity_matrices,
-        list(FREQUENCY_BANDS.keys()),
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz3_pvalue_per_band.png')
-    )
-    
+
+    if STEP_TO_START <= 4:
+        if STEP_TO_START == 4:
+            network_measures = np.load(
+                os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
+                allow_pickle=True
+            ).item()
+
+            print("Loaded connectivity matrices")
+
+        # Visualization 1: Average connectivity matrices per method
+        print("\nCreating Visualization 1: Connectivity matrices per method...")
+        plot_connectivity_matrices(
+            connectivity_matrices,
+            CONNECTIVITY_METHODS,
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz1_connectivity_matrices.png')
+        )
+        
+        # Visualization 2: P-value matrices per method
+        print("\nCreating Visualization 2: P-value matrices per method...")
+        plot_pvalue_matrices(
+            connectivity_matrices,
+            CONNECTIVITY_METHODS,
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz2_pvalue_matrices.png')
+        )
+        
+        # Visualization 3: P-value matrices per band
+        print("\nCreating Visualization 3: P-value matrices per band...")
+        plot_pvalue_matrices_per_band(
+            connectivity_matrices,
+            list(FREQUENCY_BANDS.keys()),
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz3_pvalue_per_band.png')
+        )
+        
     # ========================================================================
     # STEP 5: NETWORK MEASURES
     # ========================================================================
@@ -163,54 +175,64 @@ def main():
     print("STEP 5: COMPUTING NETWORK MEASURES")
     print("="*80)
     print(f"Using connectivity method: {SELECTED_METHOD.upper()}")
-    
-    # Filter connectivity matrices to selected method only
-    selected_connectivity = {}
-    for group_name in connectivity_matrices.keys():
-        selected_connectivity[group_name] = {}
-        for subject_id, methods_dict in connectivity_matrices[group_name].items():
-            if SELECTED_METHOD in methods_dict:
-                selected_connectivity[group_name][subject_id] = {
-                    SELECTED_METHOD: methods_dict[SELECTED_METHOD]
-                }
-    
-    # Compute network measures
-    network_measures = compute_network_measures_for_subjects(
-        selected_connectivity,
-        list(FREQUENCY_BANDS.keys())
-    )
-    
-    # Save network measures
-    np.save(os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
-            network_measures, allow_pickle=True)
-    print(f"\nSaved network measures")
-    
+
+    if STEP_TO_START <= 5:
+        # Filter connectivity matrices to selected method only
+        selected_connectivity = {}
+        for group_name in connectivity_matrices.keys():
+            selected_connectivity[group_name] = {}
+            for subject_id, methods_dict in connectivity_matrices[group_name].items():
+                if SELECTED_METHOD in methods_dict:
+                    selected_connectivity[group_name][subject_id] = {
+                        SELECTED_METHOD: methods_dict[SELECTED_METHOD]
+                    }
+        
+        # Compute network measures
+        network_measures = compute_network_measures_for_subjects(
+            selected_connectivity,
+            list(FREQUENCY_BANDS.keys())
+        )
+        
+        # Save network measures
+        np.save(os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
+                network_measures, allow_pickle=True)
+        print(f"\nSaved network measures")
+
     # ========================================================================
     # STEP 6: STATISTICAL ANALYSIS
     # ========================================================================
     print("\n" + "="*80)
     print("STEP 6: STATISTICAL ANALYSIS")
     print("="*80)
-    
-    # Compute p-values for group comparison
-    pvalue_df = compute_group_comparison_pvalues(
-        network_measures['Healthy'],
-        network_measures['Patient'],
-        NETWORK_MEASURES,
-        list(FREQUENCY_BANDS.keys())
-    )
-    
-    # Save p-values
-    pvalue_df.to_csv(os.path.join(OUTPUT_DIR, 'data', 'network_measures_pvalues.csv'))
-    print(f"\nSaved p-values to CSV")
-    
-    # Visualization 4: P-value heatmap
-    print("\nCreating Visualization 4: Network measures p-values...")
-    plot_network_measures_pvalues(
-        pvalue_df,
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz4_network_pvalues.png')
-    )
-    
+
+    if STEP_TO_START <= 6:
+        if STEP_TO_START == 6:
+            network_measures = np.load(
+                os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
+                allow_pickle=True
+            ).item()
+
+            print("Loaded network measures")
+
+        # Compute p-values for group comparison
+        pvalue_df = compute_group_comparison_pvalues(
+            network_measures['Healthy'],
+            network_measures['Patient'],
+            NETWORK_MEASURES,
+            list(FREQUENCY_BANDS.keys())
+        )
+        
+        # Save p-values
+        pvalue_df.to_csv(os.path.join(OUTPUT_DIR, 'data', 'network_measures_pvalues.csv'))
+        print(f"\nSaved p-values to CSV")
+        
+        # Visualization 4: P-value heatmap
+        print("\nCreating Visualization 4: Network measures p-values...")
+        plot_network_measures_pvalues(
+            pvalue_df,
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz4_network_pvalues.png')
+        )
+        
     # ========================================================================
     # STEP 7: FEATURE EXTRACTION & CLASSIFICATION
     # ========================================================================
@@ -232,6 +254,8 @@ def main():
     print(f"Group 1 (Patient): {np.sum(y == 1)} subjects")
     
     # Find best feature triplets
+    print(f'{feature_names=}')
+
     top_triplets_df, all_results = find_best_feature_triplets(
         X, y, feature_names, verbose=True
     )

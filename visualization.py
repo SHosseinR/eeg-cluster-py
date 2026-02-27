@@ -65,7 +65,7 @@ def plot_connectivity_matrices(connectivity_dict, methods, output_path=None):
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
@@ -103,10 +103,11 @@ def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
         if len(all_matrices) > 0:
             # Compute p-values
             pvalue_matrix, mean_matrix = compute_pvalue_matrix(all_matrices)
+            print(f'{pvalue_matrix=}')
             
             # Plot p-values
             im = axes[idx].imshow(pvalue_matrix, cmap=CMAP_PVALUE, 
-                                 aspect='auto', vmin=0, vmax=0.1)
+                                 aspect='auto', vmin=0, vmax=0.2)
             axes[idx].set_title(f'{method.upper()}\nP-values (H0: mean=0)', 
                               fontsize=12, fontweight='bold')
             axes[idx].set_xlabel('Target Node')
@@ -133,7 +134,7 @@ def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_pvalue_matrices_per_band(connectivity_dict, band_names, output_path=None):
@@ -201,7 +202,7 @@ def plot_pvalue_matrices_per_band(connectivity_dict, band_names, output_path=Non
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_network_measures_pvalues(pvalue_df, output_path=None):
@@ -237,7 +238,7 @@ def plot_network_measures_pvalues(pvalue_df, output_path=None):
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_top_feature_sets(top_features_df, output_path=None):
@@ -297,7 +298,7 @@ def plot_top_feature_sets(top_features_df, output_path=None):
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_feature_importance(feature_names, importances, output_path=None):
@@ -344,7 +345,7 @@ def plot_feature_importance(feature_names, importances, output_path=None):
         plt.savefig(output_path, dpi=FIGURE_DPI, bbox_inches='tight')
         print(f"Saved: {output_path}")
     
-    plt.show()
+    # plt.show()
 
 
 def create_summary_report(results_dict, output_path):
