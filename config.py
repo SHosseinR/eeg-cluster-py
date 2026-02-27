@@ -7,9 +7,10 @@ import numpy as np
 # ============================================================================
 # PATH CONFIGURATION
 # ============================================================================
-HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set\\HC-5"  # UPDATE THIS
-PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set\\MDD-5"      # UPDATE THIS
+HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
+PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
 OUTPUT_DIR = "./results"
+STEP_TO_START = 0
 
 # ============================================================================
 # SIGNAL PROCESSING PARAMETERS
