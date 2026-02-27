@@ -13,13 +13,15 @@ OPTIMIZATION_MEASURES = [
     'modularity'
 ]
 
-# NSGA-II Algorithm parameters
+# NSGA-II Algorithm parameters (using pymoo)
 NSGA_CONFIG = {
     'population_size': 100,           # Population size for NSGA-II
     'n_generations': 50,              # Number of generations
     'crossover_prob': 0.9,            # Crossover probability
-    'mutation_prob': 0.1,             # Mutation probability
-    'tournament_size': 3,             # Tournament selection size
+    'crossover_eta': 15.0,            # Distribution index for SBX crossover
+    'mutation_prob': None,            # Mutation probability (None = 1/n_var = 0.5 for 2 variables)
+    'mutation_eta': 20.0,             # Distribution index for polynomial mutation
+    'seed': None,                     # Random seed for reproducibility (None = random)
 }
 
 # State-space simulation parameters
