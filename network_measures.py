@@ -291,6 +291,22 @@ def compute_diameter(adjacency_matrix):
         return np.nan
 
 
+measure_functions = {
+    'global_efficiency': compute_global_efficiency,
+    'local_efficiency': compute_local_efficiency,
+    'clustering_coefficient': compute_clustering_coefficient,
+    'transitivity': compute_transitivity,
+    'modularity': compute_modularity,
+    'degree': compute_degree,
+    'betweenness_centrality': compute_betweenness_centrality,
+    'rich_club': compute_rich_club,
+    'assortativity': compute_assortativity,
+    'spectral_radius': compute_spectral_radius,
+    'small_worldness': compute_small_worldness,
+    'diameter': compute_diameter
+}
+
+
 def compute_all_network_measures(adjacency_matrix):
     """
     Compute all network measures for a single connectivity matrix.
@@ -307,21 +323,7 @@ def compute_all_network_measures(adjacency_matrix):
     """
     measures = {}
     
-    measure_functions = {
-        'global_efficiency': compute_global_efficiency,
-        'local_efficiency': compute_local_efficiency,
-        'clustering_coefficient': compute_clustering_coefficient,
-        'transitivity': compute_transitivity,
-        'modularity': compute_modularity,
-        'degree': compute_degree,
-        'betweenness_centrality': compute_betweenness_centrality,
-        'rich_club': compute_rich_club,
-        'assortativity': compute_assortativity,
-        'spectral_radius': compute_spectral_radius,
-        'small_worldness': compute_small_worldness,
-        'diameter': compute_diameter
-    }
-    
+
     for measure_name, func in measure_functions.items():
         try:
             measures[measure_name] = func(adjacency_matrix)

@@ -289,7 +289,7 @@ class EEGOptimizer:
             n_generations=self.nsga_config['n_generations'],
             crossover_prob=self.nsga_config['crossover_prob'],
             mutation_prob=self.nsga_config['mutation_prob'],
-            tournament_size=self.nsga_config['tournament_size']
+            # tournament_size=self.nsga_config['tournament_size']
         )
         
         # Run optimization
