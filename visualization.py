@@ -301,6 +301,135 @@ def plot_top_feature_sets(top_features_df, output_path=None):
     # plt.show()
 
 
+def _chunk_items(items, chunk_size=4):
+    """Split list-like items into fixed-size chunks."""
+    return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def plot_top_feature_sets_per_band(top_features_by_band, output_path=None, panels_per_figure=4):
+    """
+    Visualization 5 (band-wise): top triplets table per band, grouped as 4 panels per figure.
+
+    Parameters
+    ----------
+    top_features_by_band : dict
+        {band_name: top_features_df}
+    output_path : str, optional
+        Base output path for figure files
+    panels_per_figure : int
+        Maximum number of band panels in each figure
+    """
+    band_items = list(top_features_by_band.items())
+    chunks = _chunk_items(band_items, chunk_size=panels_per_figure)
+
+    for part_idx, chunk in enumerate(chunks, start=1):
+        n_panels = len(chunk)
+        n_cols = 2 if n_panels > 1 else 1
+        n_rows = 2 if n_panels > 2 else 1
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(16, 10))
+        axes = np.array(axes).reshape(-1)
+
+        for ax in axes:
+            ax.axis('off')
+
+        for ax_idx, (band, top_df) in enumerate(chunk):
+            ax = axes[ax_idx]
+            ax.axis('off')
+
+            table = ax.table(
+                cellText=top_df.values,
+                colLabels=top_df.columns,
+                cellLoc='left',
+                loc='center',
+                colWidths=[0.08, 0.64, 0.28]
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(7)
+            table.scale(1, 1.4)
+
+            for col_idx in range(len(top_df.columns)):
+                table[(0, col_idx)].set_facecolor('#4CAF50')
+                table[(0, col_idx)].set_text_props(weight='bold', color='white')
+
+            ax.set_title(f'{band.upper()} Band', fontsize=12, fontweight='bold', pad=8)
+
+        fig.suptitle('Top Feature Triplets per Frequency Band', fontsize=16, fontweight='bold')
+        plt.tight_layout(rect=(0, 0, 1, 0.95))
+
+        if output_path:
+            if len(chunks) == 1:
+                save_path = output_path
+            else:
+                base, ext = output_path.rsplit('.', 1)
+                save_path = f"{base}_part{part_idx}.{ext}"
+            plt.savefig(save_path, dpi=FIGURE_DPI, bbox_inches='tight')
+            print(f"Saved: {save_path}")
+
+
+def plot_feature_importance_per_band(best_triplets_by_band, output_path=None, panels_per_figure=4):
+    """
+    Visualization 6 (band-wise): feature importance bars per band, grouped as 4 panels per figure.
+
+    Parameters
+    ----------
+    best_triplets_by_band : dict
+        {band_name: {'feature_names': [...], 'coefficients': [...]}}
+    output_path : str, optional
+        Base output path for figure files
+    panels_per_figure : int
+        Maximum number of band panels in each figure
+    """
+    band_items = list(best_triplets_by_band.items())
+    chunks = _chunk_items(band_items, chunk_size=panels_per_figure)
+
+    for part_idx, chunk in enumerate(chunks, start=1):
+        n_panels = len(chunk)
+        n_cols = 2 if n_panels > 1 else 1
+        n_rows = 2 if n_panels > 2 else 1
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 10))
+        axes = np.array(axes).reshape(-1)
+
+        for ax_idx, ax in enumerate(axes):
+            if ax_idx >= n_panels:
+                ax.axis('off')
+
+        for ax_idx, (band, best_triplet) in enumerate(chunk):
+            ax = axes[ax_idx]
+            feature_names = best_triplet['feature_names']
+            coefficients = np.array(best_triplet['coefficients'])
+            sorted_indices = np.argsort(np.abs(coefficients))[::-1]
+
+            sorted_features = [feature_names[i] for i in sorted_indices]
+            sorted_coeffs = [coefficients[i] for i in sorted_indices]
+            colors = ['#4CAF50' if c > 0 else '#F44336' for c in sorted_coeffs]
+
+            y_pos = np.arange(len(sorted_features))
+            ax.barh(y_pos, sorted_coeffs, color=colors, alpha=0.8)
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(sorted_features, fontsize=8)
+            ax.invert_yaxis()
+            ax.axvline(x=0, color='black', linewidth=0.8)
+            ax.grid(axis='x', alpha=0.3)
+            ax.set_title(
+                f"{band.upper()} (acc={best_triplet['accuracy']:.3f})",
+                fontsize=11,
+                fontweight='bold'
+            )
+            ax.set_xlabel('Coefficient')
+
+        fig.suptitle('Best Triplet Feature Importance per Frequency Band', fontsize=16, fontweight='bold')
+        plt.tight_layout(rect=(0, 0, 1, 0.95))
+
+        if output_path:
+            if len(chunks) == 1:
+                save_path = output_path
+            else:
+                base, ext = output_path.rsplit('.', 1)
+                save_path = f"{base}_part{part_idx}.{ext}"
+            plt.savefig(save_path, dpi=FIGURE_DPI, bbox_inches='tight')
+            print(f"Saved: {save_path}")
+
+
 def plot_feature_importance(feature_names, importances, output_path=None):
     """
     Visualization 6: Bar plot of feature importance for best triplet.

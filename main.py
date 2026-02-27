@@ -24,7 +24,7 @@ from statistics_utils import (
 from visualization import (
     plot_connectivity_matrices, plot_pvalue_matrices,
     plot_pvalue_matrices_per_band, plot_network_measures_pvalues,
-    plot_top_feature_sets, plot_feature_importance,
+    plot_top_feature_sets_per_band, plot_feature_importance_per_band,
     create_summary_report
 )
 from classification import (
@@ -137,7 +137,7 @@ def main():
 
     if STEP_TO_START <= 4:
         if STEP_TO_START == 4:
-            network_measures = np.load(
+            connectivity_matrices = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
                 allow_pickle=True
             ).item()
@@ -239,56 +239,88 @@ def main():
     print("\n" + "="*80)
     print("STEP 7: CLASSIFICATION ANALYSIS")
     print("="*80)
-    
-    # Extract features for classification
-    X, y, feature_names, subject_ids = extract_features_for_classification(
-        network_measures,
-        NETWORK_MEASURES,
-        list(FREQUENCY_BANDS.keys()),
-        SELECTED_METHOD
-    )
-    
-    print(f"\nFeature matrix shape: {X.shape}")
-    print(f"Number of subjects: {len(y)}")
-    print(f"Group 0 (Healthy): {np.sum(y == 0)} subjects")
-    print(f"Group 1 (Patient): {np.sum(y == 1)} subjects")
-    
-    # Find best feature triplets
-    print(f'{feature_names=}')
 
-    top_triplets_df, all_results = find_best_feature_triplets(
-        X, y, feature_names, verbose=True
-    )
-    
-    # Save results
-    top_triplets_df.to_csv(
-        os.path.join(OUTPUT_DIR, 'data', 'top_feature_triplets.csv'),
-        index=False
-    )
-    
-    # Visualization 5: Top feature triplets
-    print("\nCreating Visualization 5: Top feature triplets...")
-    plot_top_feature_sets(
-        top_triplets_df,
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz5_top_triplets.png')
-    )
-    
-    # Get best triplet details
-    best_triplet = get_best_triplet_details(all_results, rank=1)
-    
-    # Visualization 6: Feature importance
-    print("\nCreating Visualization 6: Feature importance...")
-    plot_feature_importance(
-        best_triplet['feature_names'],
-        best_triplet['coefficients'],
-        output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz6_feature_importance.png')
-    )
-    
-    # Create classification report
-    classification_report = create_classification_report(
-        X, y, feature_names, all_results,
-        output_path=os.path.join(OUTPUT_DIR, 'reports', 'classification_report.txt')
-    )
+    if STEP_TO_START <= 7:
+        if STEP_TO_START == 7:
+            network_measures = np.load(
+                os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
+                allow_pickle=True
+            ).item()
+            print("Loaded network measures")
+
+            pvalue_csv = os.path.join(OUTPUT_DIR, 'data', 'network_measures_pvalues.csv')
+            if os.path.exists(pvalue_csv):
+                pvalue_df = pd.read_csv(pvalue_csv, index_col=0)
+                print("Loaded network measure p-values")
+
+        band_names = list(FREQUENCY_BANDS.keys())
+        top_triplets_by_band = {}
+        best_triplets_by_band = {}
+        classification_reports_by_band = {}
+        summary_rows = []
+
+        for band in band_names:
+            print("\n" + "-"*80)
+            print(f"Band-wise classification: {band.upper()}")
+            print("-"*80)
+
+            X, y, feature_names, subject_ids = extract_features_for_classification(
+                network_measures,
+                NETWORK_MEASURES,
+                [band],
+                SELECTED_METHOD
+            )
+
+            print(f"Feature matrix shape ({band}): {X.shape}")
+            print(f"Number of subjects: {len(y)}")
+            print(f"Group 0 (Healthy): {np.sum(y == 0)} subjects")
+            print(f"Group 1 (Patient): {np.sum(y == 1)} subjects")
+
+            top_triplets_df, all_results = find_best_feature_triplets(
+                X, y, feature_names, verbose=True
+            )
+
+            top_triplets_by_band[band] = top_triplets_df
+            best_triplet = get_best_triplet_details(all_results, rank=1)
+            best_triplets_by_band[band] = best_triplet
+
+            top_triplets_df.to_csv(
+                os.path.join(OUTPUT_DIR, 'data', f'top_feature_triplets_{band}.csv'),
+                index=False
+            )
+
+            classification_report = create_classification_report(
+                X, y, feature_names, all_results,
+                output_path=os.path.join(OUTPUT_DIR, 'reports', f'classification_report_{band}.txt')
+            )
+            classification_reports_by_band[band] = classification_report
+
+            summary_rows.append({
+                'band': band,
+                'best_accuracy': best_triplet['accuracy'],
+                'best_accuracy_std': best_triplet['accuracy_std'],
+                'best_features': ', '.join(best_triplet['feature_names'])
+            })
+
+        classification_summary_df = pd.DataFrame(summary_rows).sort_values(
+            by='best_accuracy', ascending=False
+        )
+        classification_summary_df.to_csv(
+            os.path.join(OUTPUT_DIR, 'data', 'classification_summary_by_band.csv'),
+            index=False
+        )
+
+        print("\nCreating Visualization 5: Top feature triplets per band (4 panels per figure)...")
+        plot_top_feature_sets_per_band(
+            top_triplets_by_band,
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz5_top_triplets_per_band.png')
+        )
+
+        print("\nCreating Visualization 6: Feature importance per band (4 panels per figure)...")
+        plot_feature_importance_per_band(
+            best_triplets_by_band,
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz6_feature_importance_per_band.png')
+        )
     
     # ========================================================================
     # STEP 8: FINAL SUMMARY
@@ -298,21 +330,45 @@ def main():
     print("="*80)
     
     # Compile summary information
+    n_healthy = len(network_measures.get('Healthy', {})) if 'network_measures' in locals() else 0
+    n_patients = len(network_measures.get('Patient', {})) if 'network_measures' in locals() else 0
+
+    n_channels = 'N/A'
+    if 'connectivity_matrices' in locals():
+        for group_data in connectivity_matrices.values():
+            for subject_data in group_data.values():
+                if SELECTED_METHOD in subject_data:
+                    first_band_matrix = next(iter(subject_data[SELECTED_METHOD].values()))
+                    n_channels = first_band_matrix.shape[0]
+                    break
+            if n_channels != 'N/A':
+                break
+
+    if 'classification_summary_df' in locals() and not classification_summary_df.empty:
+        best_band_row = classification_summary_df.iloc[0]
+        best_band_name = best_band_row['band']
+        best_triplet = best_triplets_by_band[best_band_name]
+        best_accuracy = best_triplet['accuracy']
+        best_features = f"{best_band_name}: " + ', '.join(best_triplet['feature_names'])
+    else:
+        best_accuracy = 0.0
+        best_features = 'N/A'
+
     summary_info = {
-        'n_healthy': len(healthy_data),
-        'n_patients': len(patient_data),
-        'n_channels': len(all_data[0]['channels']),
+        'n_healthy': n_healthy,
+        'n_patients': n_patients,
+        'n_channels': n_channels,
         'bands': list(FREQUENCY_BANDS.keys()),
         'methods': CONNECTIVITY_METHODS,
         'selected_method': SELECTED_METHOD,
-        'best_accuracy': best_triplet['accuracy'],
-        'best_features': ', '.join(best_triplet['feature_names']),
+        'best_accuracy': best_accuracy,
+        'best_features': best_features,
         'significant_measures': '\n    '.join([
             f"{measure}: {band}"
             for measure in pvalue_df.index
             for band in pvalue_df.columns
             if pvalue_df.loc[measure, band] < 0.05
-        ])
+        ]) if 'pvalue_df' in locals() else 'N/A'
     }
     
     create_summary_report(
@@ -333,24 +389,25 @@ def main():
     print("    - viz2_pvalue_matrices.png")
     print("    - viz3_pvalue_per_band.png")
     print("    - viz4_network_pvalues.png")
-    print("    - viz5_top_triplets.png")
-    print("    - viz6_feature_importance.png")
+    print("    - viz5_top_triplets_per_band.png (and additional parts if needed)")
+    print("    - viz6_feature_importance_per_band.png (and additional parts if needed)")
     print("  Data:")
     print("    - connectivity_matrices.npy")
     print("    - network_measures.npy")
     print("    - network_measures_pvalues.csv")
-    print("    - top_feature_triplets.csv")
+    print("    - top_feature_triplets_<band>.csv")
+    print("    - classification_summary_by_band.csv")
     print("  Reports:")
-    print("    - classification_report.txt")
+    print("    - classification_report_<band>.txt")
     print("    - summary_report.png")
     
     print(f"\n{'='*80}\n")
     
     return {
-        'connectivity_matrices': connectivity_matrices,
-        'network_measures': network_measures,
-        'pvalue_df': pvalue_df,
-        'classification_results': classification_report,
+        'connectivity_matrices': connectivity_matrices if 'connectivity_matrices' in locals() else {},
+        'network_measures': network_measures if 'network_measures' in locals() else {},
+        'pvalue_df': pvalue_df if 'pvalue_df' in locals() else pd.DataFrame(),
+        'classification_results': classification_reports_by_band if 'classification_reports_by_band' in locals() else {},
         'summary': summary_info
     }
 
