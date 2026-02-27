@@ -10,6 +10,7 @@ from signal_processing import process_subject_epochs
 from connectivity import compute_all_connectivity
 from network_measures import compute_all_network_measures
 from visualization import plot_connectivity_matrices
+from utils import pretty_print_matrix
 
 # =============================================================================
 # EXAMPLE 1: Load and process a single subject
@@ -53,16 +54,19 @@ def example_connectivity_single_band():
     
     # Compute PLV connectivity for alpha band
     band_name = 'alpha'
-    method = 'plv'
+    # methods = ['plv', 'psi', 'gc', 'gc_tr']
+    methods = ['plv']
     
-    print(f"\nComputing {method.upper()} connectivity for {band_name} band...")
-    connectivity_matrix = compute_connectivity_for_band(
-        filtered_epochs, band_name, fs, method
-    )
-    
-    print(f"Connectivity matrix shape: {connectivity_matrix.shape}")
-    print(f"Mean connectivity: {np.mean(connectivity_matrix):.4f}")
-    print(f"Max connectivity: {np.max(connectivity_matrix):.4f}")
+    for method in methods:
+        print(f"\nComputing {method.upper()} connectivity for {band_name} band...")
+        connectivity_matrix = compute_connectivity_for_band(
+            filtered_epochs, band_name, fs, method
+        )
+        pretty_print_matrix(connectivity_matrix, max_rows=5, max_columns=5)
+        print(f"Connectivity matrix shape: {connectivity_matrix.shape}")
+        print(f"Mean connectivity: {np.mean(connectivity_matrix):.4f}")
+        print(f"Max connectivity: {np.max(connectivity_matrix):.4f}")
+        print("="*50)
     
     return connectivity_matrix
 
@@ -210,10 +214,10 @@ def main():
     # example_connectivity_single_band()
     
     # Example 3: Network measures
-    # example_network_measures()
+    example_network_measures()
     
     # Example 4: Group comparison
-    example_group_comparison()
+    # example_group_comparison()
     
     # Example 5: Custom visualization
     # example_custom_visualization()

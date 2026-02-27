@@ -4,7 +4,7 @@ Connectivity analysis using various methods
 
 import numpy as np
 import mne
-from mne_connectivity import spectral_connectivity_epochs, spectral_connectivity_time
+from mne_connectivity import spectral_connectivity_epochs, spectral_connectivity_time, phase_slope_index
 from config import CONNECTIVITY_METHODS, FMIN, FMAX
 
 def compute_plv(epochs, fs, fmin, fmax):
@@ -49,8 +49,10 @@ def compute_plv(epochs, fs, fmin, fmax):
     
     # Get connectivity matrix (average across frequency)
     connectivity_matrix = con.get_data(output='dense')
-    connectivity_matrix = np.mean(connectivity_matrix, axis=0)  # Average across freqs
-    
+    # print(f'{connectivity_matrix.shape=}')
+    connectivity_matrix = np.mean(connectivity_matrix, axis=2)  # Average across freqs
+    connectivity_matrix += connectivity_matrix.T
+
     return connectivity_matrix
 
 
@@ -83,22 +85,26 @@ def compute_psi(epochs, fs, fmin, fmax):
     epochs_mne = mne.EpochsArray(epochs, info, verbose=False)
     
     # Compute PSI
-    con = spectral_connectivity_epochs(
+    con = phase_slope_index(
         epochs_mne,
-        method='psi',
         mode='multitaper',
         sfreq=fs,
         fmin=fmin,
         fmax=fmax,
-        faverage=True,
         verbose=False
     )
-    
+
     # Get connectivity matrix
     connectivity_matrix = con.get_data(output='dense')
-    connectivity_matrix = np.mean(connectivity_matrix, axis=0)  # Average across freqs
-    
-    return connectivity_matrix
+    connectivity_matrix = np.mean(connectivity_matrix, axis=2)  # Average across freqs
+
+    psi_pos = np.zeros_like(connectivity_matrix)
+    neg = connectivity_matrix < 0
+    psi_pos[neg.T] = -connectivity_matrix[neg]   
+    pos = connectivity_matrix > 0
+    psi_pos[pos] = connectivity_matrix[pos]
+
+    return psi_pos
 
 
 def compute_granger_causality(epochs, fs, fmin, fmax):
@@ -122,6 +128,8 @@ def compute_granger_causality(epochs, fs, fmin, fmax):
         Granger Causality connectivity matrix (directed)
     """
     # Convert to MNE Epochs object
+    n_ch = epochs.shape[1]
+
     info = mne.create_info(
         ch_names=[f'Ch{i}' for i in range(epochs.shape[1])],
         sfreq=fs,
@@ -129,11 +137,19 @@ def compute_granger_causality(epochs, fs, fmin, fmax):
     )
     epochs_mne = mne.EpochsArray(epochs, info, verbose=False)
     
+    sources, targets = np.where(~np.eye(n_ch, dtype=bool))
+    seeds   = [[int(i)] for i in sources]
+    targs   = [[int(j)] for j in targets]
+    indices = (seeds, targs)
+    # indices = (sources.tolist(), targets.tolist())
+    # print(f'{indices=}')
+    
     # Compute Granger Causality
     con = spectral_connectivity_epochs(
         epochs_mne,
         method='gc',
         mode='multitaper',
+        indices=indices,
         sfreq=fs,
         fmin=fmin,
         fmax=fmax,
@@ -142,18 +158,17 @@ def compute_granger_causality(epochs, fs, fmin, fmax):
     )
     
     # Get connectivity matrix
-    connectivity_matrix = con.get_data(output='dense')
-    connectivity_matrix = np.mean(connectivity_matrix, axis=0)  # Average across freqs
-    
-    return connectivity_matrix
+    vals = con.get_data()
+    vals = vals[:, 0] if vals.ndim == 2 else vals  # handle (n_conn, 1)
 
+    gc_mat = np.full((n_ch, n_ch), np.nan, float)
+    gc_mat[sources, targets] = vals
+    np.fill_diagonal(gc_mat, 0.0)
+    return gc_mat
 
-def compute_pdc(epochs, fs, fmin, fmax):
+def compute_granger_causality_tr(epochs, fs, fmin, fmax):
     """
-    Compute Partial Directed Coherence (PDC) connectivity.
-    
-    Note: PDC implementation may require additional libraries.
-    This is a placeholder that attempts to use available methods.
+    Compute Time Teversed Spectral Granger Causality connectivity.
     
     Parameters
     ----------
@@ -169,41 +184,49 @@ def compute_pdc(epochs, fs, fmin, fmax):
     Returns
     -------
     connectivity : ndarray, shape (n_channels, n_channels)
-        PDC connectivity matrix (directed)
+        Time Reversed Granger Causality connectivity matrix (directed)
     """
-    try:
-        # Try to use MNE-connectivity if PDC is available
-        info = mne.create_info(
-            ch_names=[f'Ch{i}' for i in range(epochs.shape[1])],
-            sfreq=fs,
-            ch_types='eeg'
-        )
-        epochs_mne = mne.EpochsArray(epochs, info, verbose=False)
-        
-        # Attempt to compute with 'gc_tr' which is similar to PDC
-        con = spectral_connectivity_epochs(
-            epochs_mne,
-            method='gc_tr',  # Time-reversed Granger (similar to PDC)
-            mode='multitaper',
-            sfreq=fs,
-            fmin=fmin,
-            fmax=fmax,
-            faverage=True,
-            verbose=False
-        )
-        
-        connectivity_matrix = con.get_data(output='dense')
-        connectivity_matrix = np.mean(connectivity_matrix, axis=0)
-        
-        return connectivity_matrix
-        
-    except Exception as e:
-        print(f"Warning: PDC computation failed. Using placeholder. Error: {e}")
-        print("Consider installing specialized PDC package or using alternative method.")
-        
-        # Return placeholder (zeros or random)
-        n_channels = epochs.shape[1]
-        return np.zeros((n_channels, n_channels))
+    # Convert to MNE Epochs object
+    n_ch = epochs.shape[1]
+
+    info = mne.create_info(
+        ch_names=[f'Ch{i}' for i in range(epochs.shape[1])],
+        sfreq=fs,
+        ch_types='eeg'
+    )
+    epochs_mne = mne.EpochsArray(epochs, info, verbose=False)
+    
+    sources, targets = np.where(~np.eye(n_ch, dtype=bool))
+    seeds   = [[int(i)] for i in sources]
+    targs   = [[int(j)] for j in targets]
+    indices = (seeds, targs)
+    # indices = (sources.tolist(), targets.tolist())
+    # print(f'{indices=}')
+    
+    # Compute Time Reversed Granger Causality
+    con = spectral_connectivity_epochs(
+        epochs_mne,
+        method='gc_tr',
+        mode='multitaper',
+        indices=indices,
+        sfreq=fs,
+        fmin=fmin,
+        fmax=fmax,
+        faverage=True,
+        verbose=False
+    )
+    
+    # Get connectivity matrix
+    vals = con.get_data()
+    vals = vals[:, 0] if vals.ndim == 2 else vals  # handle (n_conn, 1)
+
+    gc_mat = np.full((n_ch, n_ch), np.nan, float)
+    gc_mat[sources, targets] = vals
+    np.fill_diagonal(gc_mat, 0.0)
+    return gc_mat
+
+def compute_pdc(epochs, fs, fmin, fmax):
+    raise NotImplementedError
 
 
 def compute_connectivity_for_band(filtered_epochs, band_name, fs, method='plv'):
@@ -239,6 +262,8 @@ def compute_connectivity_for_band(filtered_epochs, band_name, fs, method='plv'):
         connectivity = compute_psi(epochs, fs, fmin, fmax)
     elif method == 'gc':
         connectivity = compute_granger_causality(epochs, fs, fmin, fmax)
+    elif method == 'gc_tr':
+        connectivity = compute_granger_causality_tr(epochs, fs, fmin, fmax)
     elif method == 'pdc':
         connectivity = compute_pdc(epochs, fs, fmin, fmax)
     else:

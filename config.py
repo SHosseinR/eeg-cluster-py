@@ -7,8 +7,8 @@ import numpy as np
 # ============================================================================
 # PATH CONFIGURATION
 # ============================================================================
-HC_DATA_PATH = "/path/to/healthy/controls"  # UPDATE THIS
-PATIENT_DATA_PATH = "/path/to/patients"      # UPDATE THIS
+HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set\\HC-5"  # UPDATE THIS
+PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set\\MDD-5"      # UPDATE THIS
 OUTPUT_DIR = "./results"
 
 # ============================================================================
@@ -30,7 +30,8 @@ FREQUENCY_BANDS = {
 # CONNECTIVITY PARAMETERS
 # ============================================================================
 # Connectivity methods to compute
-CONNECTIVITY_METHODS = ['pdc', 'gc', 'psi', 'plv']
+# CONNECTIVITY_METHODS = ['pdc', 'gc', 'psi', 'plv']
+CONNECTIVITY_METHODS = ['gc_tr', 'gc', 'psi', 'plv']
 
 # Selected method for network analysis (change after visualization 2)
 SELECTED_METHOD = 'gc'  # Change this based on visualization results

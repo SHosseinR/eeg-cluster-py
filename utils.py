@@ -440,6 +440,16 @@ def load_saved_results(results_dir):
     print(f"Loaded {len(results)} result files from {results_dir}")
     return results
 
+def pretty_print_matrix(A, max_rows=10, max_columns=10):
+    A = np.asarray(A)
+    sub = A[:max_rows, :max_columns]
+
+    with np.printoptions(
+        precision=4,       # decimals
+        suppress=True,     # no scientific for small numbers
+        linewidth=120      # fit in terminal width
+    ):
+        print(sub)
 
 if __name__ == "__main__":
     print("EEG Connectivity Analysis - Utility Functions")
