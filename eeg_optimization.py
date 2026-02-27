@@ -231,6 +231,7 @@ class EEGOptimizer:
             objectives = []
             for measure_name in self.optimization_measures:
                 measure_func = measure_functions[measure_name]
+                # print(f'{updated_matrix=}')
                 measure_value = measure_func(updated_matrix)
                 
                 # Convert to minimization problem
@@ -313,9 +314,9 @@ class EEGOptimizer:
         
         if verbose:
             print(f"\nBest solution:")
-            print(f"  Node: {best_solution.node} ({self.channel_names[best_solution.node]})")
-            print(f"  Band: {self.band_names[best_solution.band]}")
-            print(f"  Objectives: {best_solution.objectives}")
+            print(f"  Node: {best_solution['node']} ({self.channel_names[best_solution['node']]})")
+            print(f"  Band: {self.band_names[best_solution['band']]}")
+            print(f"  Objectives: {best_solution['objectives']}")
         
         return results
     

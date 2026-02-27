@@ -30,7 +30,7 @@ def plot_node_histogram(optimization_results: Dict,
     optimal_nodes = []
     for subject_id, results in optimization_results.items():
         if 'best_solution' in results and results['best_solution'] is not None:
-            optimal_nodes.append(results['best_solution'].node)
+            optimal_nodes.append(results['best_solution']['node'])
     
     if not optimal_nodes:
         print("No optimization results to plot")
@@ -75,7 +75,7 @@ def plot_node_histogram(optimization_results: Dict,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Node histogram saved to: {save_path}")
     
-    plt.show()
+    # plt.show()
     
     return fig
 
@@ -102,7 +102,7 @@ def plot_band_histogram(optimization_results: Dict,
     optimal_bands = []
     for subject_id, results in optimization_results.items():
         if 'best_solution' in results and results['best_solution'] is not None:
-            optimal_bands.append(results['best_solution'].band)
+            optimal_bands.append(results['best_solution']['band'])
     
     if not optimal_bands:
         print("No optimization results to plot")
@@ -146,7 +146,7 @@ def plot_band_histogram(optimization_results: Dict,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Band histogram saved to: {save_path}")
     
-    plt.show()
+    # plt.show()
     
     return fig
 
@@ -177,8 +177,8 @@ def plot_node_band_heatmap(optimization_results: Dict,
     
     for subject_id, results in optimization_results.items():
         if 'best_solution' in results and results['best_solution'] is not None:
-            node = results['best_solution'].node
-            band = results['best_solution'].band
+            node = results['best_solution']['node']
+            band = results['best_solution']['band']
             node_band_counts[node, band] += 1
     
     # Create figure
@@ -223,7 +223,7 @@ def plot_node_band_heatmap(optimization_results: Dict,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Node-band heatmap saved to: {save_path}")
     
-    plt.show()
+    # plt.show()
     
     return fig
 
@@ -263,7 +263,7 @@ def plot_pareto_fronts(optimization_results: Dict,
                 continue
             
             # Extract objectives from Pareto front
-            objectives = np.array([ind.objectives for ind in results['best_front']])
+            objectives = np.array([ind['objectives'] for ind in results['best_front']])
             
             # Plot Pareto front
             ax.scatter(objectives[:, 0], objectives[:, 1], objectives[:, 2],
@@ -271,7 +271,7 @@ def plot_pareto_fronts(optimization_results: Dict,
             
             # Highlight best solution
             if results['best_solution'] is not None:
-                best_obj = results['best_solution'].objectives
+                best_obj = results['best_solution']['objectives']
                 ax.scatter([best_obj[0]], [best_obj[1]], [best_obj[2]],
                           c='crimson', s=200, marker='*', 
                           edgecolors='black', linewidths=2, label='Best')
@@ -295,14 +295,14 @@ def plot_pareto_fronts(optimization_results: Dict,
             if 'best_front' not in results or not results['best_front']:
                 continue
             
-            objectives = np.array([ind.objectives for ind in results['best_front']])
+            objectives = np.array([ind['objectives'] for ind in results['best_front']])
             
             # Plot first two objectives
             ax.scatter(objectives[:, 0], objectives[:, 1],
                       c='steelblue', s=50, alpha=0.6, edgecolors='black')
             
             if results['best_solution'] is not None:
-                best_obj = results['best_solution'].objectives
+                best_obj = results['best_solution']['objectives']
                 ax.scatter([best_obj[0]], [best_obj[1]],
                           c='crimson', s=200, marker='*',
                           edgecolors='black', linewidths=2, label='Best')
@@ -320,7 +320,7 @@ def plot_pareto_fronts(optimization_results: Dict,
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Pareto fronts plot saved to: {save_path}")
     
-    plt.show()
+    # plt.show()
     
     return fig
 
@@ -428,7 +428,7 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
         
         # Node distribution
-        optimal_nodes = [r['best_solution'].node for r in optimization_results.values() 
+        optimal_nodes = [r['best_solution']['node'] for r in optimization_results.values() 
                         if r['best_solution'] is not None]
         node_counts = np.bincount(optimal_nodes, minlength=len(channel_names))
         
@@ -443,7 +443,7 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
         
         # Band distribution
-        optimal_bands = [r['best_solution'].band for r in optimization_results.values()
+        optimal_bands = [r['best_solution']['band'] for r in optimization_results.values()
                         if r['best_solution'] is not None]
         band_counts = np.bincount(optimal_bands, minlength=len(band_names))
         
@@ -464,9 +464,9 @@ def create_optimization_report(optimization_results: Dict,
             if results['best_solution'] is not None:
                 sol = results['best_solution']
                 f.write(f"\n{subject_id}:\n")
-                f.write(f"  Optimal node: {channel_names[sol.node]}\n")
-                f.write(f"  Optimal band: {band_names[sol.band]}\n")
-                f.write(f"  Objectives: {sol.objectives}\n")
+                f.write(f"  Optimal node: {channel_names[sol['node']]}\n")
+                f.write(f"  Optimal band: {band_names[sol['band']]}\n")
+                f.write(f"  Objectives: {sol['objectives']}\n")
                 f.write(f"  Pareto front size: {len(results['best_front'])}\n")
     
     print(f"\nOptimization report saved to: {output_path}")

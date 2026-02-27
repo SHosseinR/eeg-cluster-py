@@ -9,8 +9,8 @@ Configuration for NSGA-II optimization of EEG connectivity
 # Network measures to optimize (select 3 from the available measures)
 OPTIMIZATION_MEASURES = [
     'global_efficiency',
-    'clustering_coefficient', 
-    'modularity'
+    'betweenness_centrality', 
+    'small_worldness'
 ]
 
 # NSGA-II Algorithm parameters (using pymoo)
