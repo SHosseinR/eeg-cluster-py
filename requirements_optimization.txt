@@ -1,0 +1,26 @@
+# Optimization Module Requirements
+# These are additional/specific requirements for the NSGA-II optimization module
+# Most dependencies should already be satisfied by the main pipeline requirements
+
+# Core scientific computing (should already be installed)
+numpy>=1.21.0
+scipy>=1.7.0
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Data structures
+dataclasses>=0.6; python_version < '3.7'  # Built-in for Python 3.7+
+
+# Optional: For parallel processing (if implemented in future)
+# joblib>=1.0.0
+# multiprocessing-logging>=0.3.0
+
+# Optional: For progress bars (recommended)
+tqdm>=4.60.0
+
+# Optional: For better visualization
+# plotly>=5.0.0
+# networkx>=2.6.0  # For network visualization
+
+# Note: Most packages are already included in main requirements.txt
+# This file is provided for reference and documentation purposes
