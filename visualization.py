@@ -82,7 +82,7 @@ def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
     output_path : str, optional
         Path to save figure
     """
-    from statistics import compute_pvalue_matrix
+    from statistics_utils import compute_pvalue_matrix
     
     n_methods = len(methods)
     fig, axes = plt.subplots(1, n_methods, figsize=(5*n_methods, 4))
@@ -150,7 +150,7 @@ def plot_pvalue_matrices_per_band(connectivity_dict, band_names, output_path=Non
     output_path : str, optional
         Path to save figure
     """
-    from statistics import compute_pvalue_matrix
+    from statistics_utils import compute_pvalue_matrix
     
     n_bands = len(band_names)
     fig, axes = plt.subplots(1, n_bands, figsize=(4*n_bands, 3))

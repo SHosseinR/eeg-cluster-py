@@ -192,7 +192,7 @@ def run_minimal_test():
         
         # Test network measure
         import bct
-        conn_2d = np.mean(conn_matrix, axis=0)
+        conn_2d = np.mean(conn_matrix, axis=2)
         eff = bct.efficiency_wei(conn_2d)
         print(f"  Global efficiency: {eff:.4f}")
         

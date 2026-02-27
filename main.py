@@ -17,7 +17,7 @@ from data_loader import load_group_data, verify_data_consistency
 from signal_processing import process_subject_epochs
 from connectivity import compute_all_connectivity
 from network_measures import compute_network_measures_for_subjects, compute_all_network_measures
-from statistics import (
+from statistics_utils import (
     compute_pvalue_matrix, compute_group_comparison_pvalues,
     extract_features_for_classification
 )
