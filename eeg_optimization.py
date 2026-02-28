@@ -79,9 +79,47 @@ class EEGOptimizer:
         
         # Determine optimization directions (minimize or maximize)
         self.optimization_directions = self._determine_optimization_directions()
+        # Fixed normalization baselines (one per optimization measure)
+        self.healthy_measure_baselines = self._compute_healthy_measure_baselines()
         
         # Store results
         self.optimization_results = {}
+
+    def _compute_healthy_measure_baselines(self) -> Dict[str, float]:
+        """
+        Compute constant normalization baselines from Healthy subjects.
+        
+        For each optimization measure, baseline is the average value across all
+        Healthy subjects and all configured frequency bands for selected_method.
+        
+        Returns
+        -------
+        baselines : dict
+            Mapping from measure name to baseline scalar
+        """
+        baselines = {}
+        eps = 1e-10
+
+        for measure in self.optimization_measures:
+            healthy_values = []
+            for subject_id in self.network_measures['Healthy'].keys():
+                for band in self.band_names:
+                    if self.selected_method in self.network_measures['Healthy'][subject_id]:
+                        if band in self.network_measures['Healthy'][subject_id][self.selected_method]:
+                            if measure in self.network_measures['Healthy'][subject_id][self.selected_method][band]:
+                                val = self.network_measures['Healthy'][subject_id][self.selected_method][band][measure]
+                                if np.isfinite(val):
+                                    healthy_values.append(float(val))
+
+            baseline = float(np.mean(healthy_values)) if healthy_values else 1.0
+            if abs(baseline) < eps:
+                print(f"  Warning: Healthy baseline for {measure} is near zero ({baseline:.4e}); using 1.0")
+                baseline = 1.0
+
+            baselines[measure] = baseline
+            print(f"  Baseline ({measure}): {baseline:.6f}")
+
+        return baselines
     
     def _determine_optimization_directions(self) -> Dict[str, str]:
         """
@@ -233,13 +271,15 @@ class EEGOptimizer:
                 measure_func = measure_functions[measure_name]
                 # print(f'{updated_matrix=}')
                 measure_value = measure_func(updated_matrix)
+                baseline = self.healthy_measure_baselines[measure_name]
+                normalized_value = measure_value / baseline
                 
                 # Convert to minimization problem
                 if self.optimization_directions[measure_name] == 'maximize':
                     # Negate for maximization
-                    objectives.append(-measure_value)
+                    objectives.append(-normalized_value)
                 else:
-                    objectives.append(measure_value)
+                    objectives.append(normalized_value)
             
             return np.array(objectives)
         
