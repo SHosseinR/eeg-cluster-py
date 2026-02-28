@@ -6,6 +6,45 @@ import numpy as np
 import bct
 from config import NETWORK_MEASURES
 
+def _prepare_weighted_directed_matrix(adjacency_matrix):
+    """
+    Prepare a weighted directed adjacency matrix for metric computation.
+    """
+    W = np.array(adjacency_matrix, dtype=float, copy=True)
+    W = np.nan_to_num(W, nan=0.0, posinf=0.0, neginf=0.0)
+    np.fill_diagonal(W, 0.0)
+    # Most connectivity measures are non-negative; clip tiny negatives/noise.
+    W[W < 0] = 0.0
+    return W
+
+
+def _to_length_matrix(weight_matrix):
+    """
+    Convert weights to connection lengths for shortest-path metrics.
+    """
+    L = np.full_like(weight_matrix, np.inf, dtype=float)
+    positive = weight_matrix > 0
+    L[positive] = 1.0 / weight_matrix[positive]
+    np.fill_diagonal(L, 0.0)
+    return L
+
+
+def _global_efficiency_from_distance(distance_matrix):
+    """
+    Compute global efficiency from a shortest-path distance matrix.
+    """
+    D = np.array(distance_matrix, dtype=float, copy=True)
+    np.fill_diagonal(D, np.inf)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        inv_D = 1.0 / D
+    inv_D[~np.isfinite(inv_D)] = 0.0
+
+    n = D.shape[0]
+    if n <= 1:
+        return np.nan
+    return np.sum(inv_D) / (n * (n - 1))
+
+
 def compute_global_efficiency(adjacency_matrix):
     """
     Compute global efficiency of the network.
@@ -20,7 +59,10 @@ def compute_global_efficiency(adjacency_matrix):
     efficiency : float
         Global efficiency
     """
-    return bct.efficiency_wei(adjacency_matrix)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    L = _to_length_matrix(W)
+    D = bct.distance_wei(L)[0]
+    return _global_efficiency_from_distance(D)
 
 
 def compute_local_efficiency(adjacency_matrix):
@@ -37,8 +79,30 @@ def compute_local_efficiency(adjacency_matrix):
     efficiency : float
         Average local efficiency
     """
-    local_eff = bct.efficiency_wei(adjacency_matrix, local=True)
-    return np.mean(local_eff)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    n = W.shape[0]
+    if n <= 2:
+        return np.nan
+
+    local_eff = np.full(n, np.nan, dtype=float)
+
+    for i in range(n):
+        # Directed neighborhood: nodes with incoming OR outgoing edge to i.
+        nbr_mask = (W[i, :] > 0) | (W[:, i] > 0)
+        nbr_mask[i] = False
+        nbr_idx = np.where(nbr_mask)[0]
+
+        if nbr_idx.size < 2:
+            continue
+
+        subW = W[np.ix_(nbr_idx, nbr_idx)]
+        subL = _to_length_matrix(subW)
+        subD = bct.distance_wei(subL)[0]
+        local_eff[i] = _global_efficiency_from_distance(subD)
+
+    if np.all(np.isnan(local_eff)):
+        return np.nan
+    return np.nanmean(local_eff)
 
 
 def compute_clustering_coefficient(adjacency_matrix):
@@ -55,7 +119,8 @@ def compute_clustering_coefficient(adjacency_matrix):
     clustering : float
         Average clustering coefficient
     """
-    cc = bct.clustering_coef_wu(adjacency_matrix)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    cc = bct.clustering_coef_wd(W)
     return np.mean(cc)
 
 
@@ -73,7 +138,8 @@ def compute_transitivity(adjacency_matrix):
     transitivity : float
         Network transitivity
     """
-    return bct.transitivity_wu(adjacency_matrix)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    return bct.transitivity_wd(W)
 
 
 def compute_modularity(adjacency_matrix):
@@ -91,11 +157,17 @@ def compute_modularity(adjacency_matrix):
         Modularity Q value
     """
     try:
-        _, Q = bct.community_louvain(adjacency_matrix)
+        W = _prepare_weighted_directed_matrix(adjacency_matrix)
+        _, Q = bct.modularity_dir(W)
         return Q
     except:
-        # If modularity computation fails, return NaN
-        return np.nan
+        try:
+            W = _prepare_weighted_directed_matrix(adjacency_matrix)
+            _, Q = bct.community_louvain(W)
+            return Q
+        except:
+            # If modularity computation fails, return NaN
+            return np.nan
 
 
 def compute_degree(adjacency_matrix):
@@ -112,8 +184,9 @@ def compute_degree(adjacency_matrix):
     degree : float
         Average degree
     """
-    degrees = bct.degrees_und(adjacency_matrix)
-    return np.mean(degrees)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    strengths = bct.strengths_dir(W)
+    return np.mean(strengths)
 
 
 def compute_betweenness_centrality(adjacency_matrix):
@@ -132,7 +205,10 @@ def compute_betweenness_centrality(adjacency_matrix):
     """
     # Convert to connection-length matrix (inverse weights)
     # Avoid division by zero
-    length_matrix = np.where(adjacency_matrix > 0, 1.0 / adjacency_matrix, 0)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    length_matrix = np.zeros_like(W, dtype=float)
+    positive = W > 0
+    length_matrix[positive] = 1.0 / W[positive]
     bc = bct.betweenness_wei(length_matrix)
     return np.mean(bc)
 
@@ -154,13 +230,12 @@ def compute_rich_club(adjacency_matrix, k=None):
         Rich club coefficient at degree k
     """
     try:
-        degrees = bct.degrees_und(adjacency_matrix)
+        W = _prepare_weighted_directed_matrix(adjacency_matrix)
+        _, _, degrees = bct.degrees_dir(W)
         if k is None:
             k = int(np.median(degrees))
-        
-        # Binarize for rich club
-        binary_matrix = (adjacency_matrix > 0).astype(int)
-        rc = bct.rich_club_wu(adjacency_matrix, klevel=k)
+
+        rc = bct.rich_club_wd(W, klevel=k)
         
         if len(rc) > 0 and not np.isnan(rc[0]):
             return rc[0]
@@ -185,7 +260,18 @@ def compute_assortativity(adjacency_matrix):
         Assortativity coefficient
     """
     try:
-        return bct.assortativity_wei(adjacency_matrix, flag=0)
+        W = _prepare_weighted_directed_matrix(adjacency_matrix)
+        A = (W > 0).astype(float)
+        # Directed assortativity: average over out-in, in-out, out-out, in-in.
+        vals = []
+        for flag in (1, 2, 3, 4):
+            try:
+                vals.append(float(bct.assortativity_bin(A, flag=flag)))
+            except:
+                continue
+        if len(vals) == 0:
+            return np.nan
+        return np.mean(vals)
     except:
         return np.nan
 
@@ -204,7 +290,8 @@ def compute_spectral_radius(adjacency_matrix):
     spectral_radius : float
         Largest eigenvalue magnitude
     """
-    eigenvalues = np.linalg.eigvals(adjacency_matrix)
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    eigenvalues = np.linalg.eigvals(W)
     return np.max(np.abs(eigenvalues))
 
 
@@ -227,30 +314,33 @@ def compute_small_worldness(adjacency_matrix):
     """
     try:
         # Real network measures
-        C_real = np.mean(bct.clustering_coef_wu(adjacency_matrix))
+        W = _prepare_weighted_directed_matrix(adjacency_matrix)
+        C_real = np.mean(bct.clustering_coef_wd(W))
         
         # Convert to length matrix for path length computation
-        length_matrix = np.where(adjacency_matrix > 0, 1.0 / adjacency_matrix, np.inf)
+        length_matrix = _to_length_matrix(W)
         D = bct.distance_wei(length_matrix)[0]
-        L_real = np.mean(D[D != np.inf])
+        finite_D = D[np.isfinite(D) & (D > 0)]
+        L_real = np.mean(finite_D) if finite_D.size > 0 else np.nan
         
         # Generate random network with same density
         n_nodes = adjacency_matrix.shape[0]
-        n_edges = np.sum(adjacency_matrix > 0) // 2
-        density = n_edges / (n_nodes * (n_nodes - 1) / 2)
+        n_edges = np.sum(W > 0)
+        density = n_edges / (n_nodes * (n_nodes - 1))
+        density = float(np.clip(density, 0.0, 1.0))
         
         # Random network
         rand_matrix = np.random.rand(n_nodes, n_nodes)
-        rand_matrix = (rand_matrix + rand_matrix.T) / 2  # Symmetrize
         threshold = np.percentile(rand_matrix, (1 - density) * 100)
-        rand_matrix = np.where(rand_matrix > threshold, rand_matrix, 0)
+        rand_matrix = np.where(rand_matrix > threshold, rand_matrix, 0.0)
         np.fill_diagonal(rand_matrix, 0)
         
-        C_rand = np.mean(bct.clustering_coef_wu(rand_matrix))
+        C_rand = np.mean(bct.clustering_coef_wd(rand_matrix))
         
-        rand_length = np.where(rand_matrix > 0, 1.0 / rand_matrix, np.inf)
+        rand_length = _to_length_matrix(rand_matrix)
         D_rand = bct.distance_wei(rand_length)[0]
-        L_rand = np.mean(D_rand[D_rand != np.inf])
+        finite_D_rand = D_rand[np.isfinite(D_rand) & (D_rand > 0)]
+        L_rand = np.mean(finite_D_rand) if finite_D_rand.size > 0 else np.nan
         
         # Small-worldness
         gamma = C_real / C_rand if C_rand > 0 else np.nan
@@ -278,11 +368,12 @@ def compute_diameter(adjacency_matrix):
     """
     try:
         # Convert to length matrix
-        length_matrix = np.where(adjacency_matrix > 0, 1.0 / adjacency_matrix, np.inf)
+        W = _prepare_weighted_directed_matrix(adjacency_matrix)
+        length_matrix = _to_length_matrix(W)
         D = bct.distance_wei(length_matrix)[0]
         
         # Get maximum finite distance
-        finite_distances = D[D != np.inf]
+        finite_distances = D[np.isfinite(D) & (D > 0)]
         if len(finite_distances) > 0:
             return np.max(finite_distances)
         else:
