@@ -6,12 +6,13 @@ import os
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Import all modules
 from config import (
     HC_DATA_PATH, PATIENT_DATA_PATH, OUTPUT_DIR,
     FREQUENCY_BANDS, CONNECTIVITY_METHODS, SELECTED_METHOD,
-    NETWORK_MEASURES, STEP_TO_START
+    NETWORK_MEASURES, STEP_TO_START, CONNECTIVITY_N_JOBS
 )
 from data_loader import load_group_data, verify_data_consistency
 from signal_processing import process_subject_epochs
@@ -31,6 +32,18 @@ from classification import (
     find_best_feature_triplets, get_best_triplet_details,
     create_classification_report
 )
+
+
+def _compute_subject_connectivity_task(task):
+    """Worker task for per-subject connectivity computation."""
+    group_name, subject_id, filtered_epochs, fs, methods = task
+    conn_results = compute_all_connectivity(
+        filtered_epochs,
+        fs,
+        methods=methods
+    )
+    return group_name, subject_id, conn_results
+
 
 def create_output_directories():
     """Create output directories if they don't exist."""
@@ -107,21 +120,48 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 3:
-        connectivity_matrices = {}
-        
+        connectivity_matrices = {group_name: {} for group_name in all_subjects_filtered.keys()}
+        connectivity_tasks = []
+
         for group_name, subjects_dict in all_subjects_filtered.items():
-            connectivity_matrices[group_name] = {}
-            
             for subject_id, subject_data in subjects_dict.items():
-                print(f"\nComputing connectivity for {subject_id} ({group_name})...")
-                
-                conn_results = compute_all_connectivity(
-                    subject_data['filtered_epochs'],
-                    subject_data['fs'],
-                    methods=CONNECTIVITY_METHODS
+                connectivity_tasks.append(
+                    (
+                        group_name,
+                        subject_id,
+                        subject_data['filtered_epochs'],
+                        subject_data['fs'],
+                        CONNECTIVITY_METHODS
+                    )
                 )
-                
+
+        total_tasks = len(connectivity_tasks)
+        requested_workers = CONNECTIVITY_N_JOBS
+        max_workers = (os.cpu_count() or 1) if requested_workers is None else max(1, int(requested_workers))
+        max_workers = min(max_workers, total_tasks) if total_tasks > 0 else 1
+
+        if max_workers <= 1 or total_tasks <= 1:
+            print(f"\nRunning connectivity sequentially (workers={max_workers})")
+            for i, task in enumerate(connectivity_tasks, start=1):
+                group_name, subject_id, conn_results = _compute_subject_connectivity_task(task)
                 connectivity_matrices[group_name][subject_id] = conn_results
+                print(f"[{i}/{total_tasks}] Completed {subject_id} ({group_name})")
+        else:
+            print(f"\nRunning connectivity in parallel with {max_workers} processes...")
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                future_to_subject = {
+                    executor.submit(_compute_subject_connectivity_task, task): (task[0], task[1])
+                    for task in connectivity_tasks
+                }
+
+                for i, future in enumerate(as_completed(future_to_subject), start=1):
+                    group_name, subject_id = future_to_subject[future]
+                    try:
+                        _, _, conn_results = future.result()
+                        connectivity_matrices[group_name][subject_id] = conn_results
+                        print(f"[{i}/{total_tasks}] Completed {subject_id} ({group_name})")
+                    except Exception as e:
+                        print(f"[{i}/{total_tasks}] ERROR for {subject_id} ({group_name}): {e}")
         
         # Save connectivity matrices
         np.save(os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'), 

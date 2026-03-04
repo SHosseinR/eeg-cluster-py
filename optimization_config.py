@@ -23,6 +23,7 @@ NSGA_CONFIG = {
     'mutation_eta': 20.0,             # Distribution index for polynomial mutation
     'seed': None,                     # Random seed for reproducibility (None = random)
 }
+OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
 # State-space simulation parameters
 SIMULATION_CONFIG = {

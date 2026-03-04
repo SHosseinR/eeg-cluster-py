@@ -355,3 +355,14 @@ run the NSGA algorithm for each Patient subject. at last each subject would have
 
 #
 now give me the full implementation of above. Modular code. you can give multiple files for modular code.
+
+
+
+
+
+## codex
+this project. the connectivity extraction part and the nsga II optimization part. can you do it in multi process way? the code here, only use maximum one core cpu. 
+i am talking about the two parts. 
+there is one part extracting connectivity matrices (which takes a while to run) in the main.py: step 3. compute_all_connectivity function. .
+and the part to run nsga II optimization. (which also takes a while to run). in the run_optimization.py, optimizer.optimize_all_patients function. 
+I think both are independently done per subject. So they can be run in parallel.

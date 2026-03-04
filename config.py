@@ -33,6 +33,7 @@ FREQUENCY_BANDS = {
 # Connectivity methods to compute
 # CONNECTIVITY_METHODS = ['pdc', 'gc', 'psi', 'plv']
 CONNECTIVITY_METHODS = ['gc_tr', 'gc', 'psi', 'plv']
+CONNECTIVITY_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
 # Selected method for network analysis (change after visualization 2)
 SELECTED_METHOD = 'gc'  # Change this based on visualization results

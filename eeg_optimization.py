@@ -5,6 +5,7 @@ import os
 import numpy as np
 from typing import Dict, List, Tuple
 import copy
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG
@@ -12,6 +13,23 @@ from optimization_config import (
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
 from nsga_optimizer import NSGAIIOptimizer
+
+
+_WORKER_OPTIMIZER = None
+_WORKER_VERBOSE = False
+
+
+def _init_optimizer_worker(optimizer, verbose):
+    """Initialize each process with an optimizer instance."""
+    global _WORKER_OPTIMIZER, _WORKER_VERBOSE
+    _WORKER_OPTIMIZER = optimizer
+    _WORKER_VERBOSE = verbose
+
+
+def _optimize_subject_worker(subject_id: str):
+    """Run optimization for one subject in worker process."""
+    result = _WORKER_OPTIMIZER.optimize_subject(subject_id, verbose=_WORKER_VERBOSE)
+    return subject_id, result
 
 
 class EEGOptimizer:
@@ -360,7 +378,7 @@ class EEGOptimizer:
         
         return results
     
-    def optimize_all_patients(self, verbose: bool = True) -> Dict:
+    def optimize_all_patients(self, verbose: bool = True, n_jobs: int = None) -> Dict:
         """
         Run optimization for all patient subjects.
         
@@ -368,6 +386,9 @@ class EEGOptimizer:
         ----------
         verbose : bool
             Print progress information
+        n_jobs : int, optional
+            Number of parallel worker processes. If None, uses all available cores.
+            Use 1 to force sequential execution.
             
         Returns
         -------
@@ -385,19 +406,47 @@ class EEGOptimizer:
         patient_subjects = list(self.network_measures['Patient'].keys())
         
         print(f"\nTotal patient subjects: {len(patient_subjects)}")
-        
-        # Optimize each subject
+
+        total_subjects = len(patient_subjects)
+        requested_workers = n_jobs
+        max_workers = (os.cpu_count() or 1) if requested_workers is None else max(1, int(requested_workers))
+        max_workers = min(max_workers, total_subjects) if total_subjects > 0 else 1
+
         all_results = {}
-        for i, subject_id in enumerate(patient_subjects):
-            if verbose:
-                print(f"\n[{i+1}/{len(patient_subjects)}] ", end="")
-            
-            try:
-                results = self.optimize_subject(subject_id, verbose=verbose)
-                all_results[subject_id] = results
-            except Exception as e:
-                print(f"ERROR optimizing {subject_id}: {str(e)}")
-                continue
+        if max_workers <= 1 or total_subjects <= 1:
+            print(f"Running optimization sequentially (workers={max_workers})")
+            for i, subject_id in enumerate(patient_subjects):
+                if verbose:
+                    print(f"\n[{i+1}/{total_subjects}] ", end="")
+                try:
+                    results = self.optimize_subject(subject_id, verbose=verbose)
+                    all_results[subject_id] = results
+                except Exception as e:
+                    print(f"ERROR optimizing {subject_id}: {str(e)}")
+                    continue
+        else:
+            print(f"Running optimization in parallel with {max_workers} processes...")
+            # Avoid interleaved detailed logs from multiple worker processes.
+            subject_verbose = False
+            with ProcessPoolExecutor(
+                max_workers=max_workers,
+                initializer=_init_optimizer_worker,
+                initargs=(self, subject_verbose)
+            ) as executor:
+                future_to_subject = {
+                    executor.submit(_optimize_subject_worker, subject_id): subject_id
+                    for subject_id in patient_subjects
+                }
+
+                for i, future in enumerate(as_completed(future_to_subject), start=1):
+                    subject_id = future_to_subject[future]
+                    try:
+                        _, results = future.result()
+                        all_results[subject_id] = results
+                        print(f"[{i}/{total_subjects}] Completed {subject_id}")
+                    except Exception as e:
+                        print(f"[{i}/{total_subjects}] ERROR optimizing {subject_id}: {str(e)}")
+                        continue
         
         self.optimization_results = all_results
         

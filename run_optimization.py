@@ -12,7 +12,7 @@ from config import (
 )
 from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
-    OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR
+    OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS
 )
 
 # Import optimization modules
@@ -212,9 +212,14 @@ def main():
     print("\n" + "="*80)
     print("RUNNING OPTIMIZATION")
     print("="*80)
+    effective_workers = (os.cpu_count() or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
+    print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
     
     try:
-        optimization_results = optimizer.optimize_all_patients(verbose=True)
+        optimization_results = optimizer.optimize_all_patients(
+            verbose=True,
+            n_jobs=OPTIMIZATION_N_JOBS
+        )
     except Exception as e:
         print(f"\nERROR during optimization: {str(e)}")
         import traceback
