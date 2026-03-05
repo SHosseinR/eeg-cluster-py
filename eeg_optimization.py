@@ -69,7 +69,7 @@ class EEGOptimizer:
         selected_method : str
             Connectivity method to use (e.g., 'plv', 'pdc', 'gc', 'psi')
         optimization_measures : list of str
-            Names of 3 network measures to optimize
+            Names of network measures to optimize (can be any number: 2, 3, 4, 5, etc.)
         nsga_config : dict
             NSGA-II configuration parameters
         simulation_config : dict
@@ -350,6 +350,9 @@ class EEGOptimizer:
             mutation_prob=self.nsga_config['mutation_prob'],
             # tournament_size=self.nsga_config['tournament_size']
         )
+        
+        # Set the problem with correct number of objectives
+        optimizer.set_problem(n_objectives=len(self.optimization_measures))
         
         # Run optimization
         best_front, history = optimizer.optimize(verbose=verbose)
