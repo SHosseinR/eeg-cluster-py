@@ -22,7 +22,7 @@ class EEGOptimizationProblem(Problem):
     - x[1]: Frequency band (integer, 0 to n_bands-1)
     
     Objectives:
-    - f[0], f[1], ..., f[n-1]: Network measures to optimize (dynamic number)
+    - f[0], f[1], f[2]: Three network measures to optimize
     """
     
     def __init__(self, 
@@ -138,27 +138,12 @@ class NSGAIIOptimizer:
         self.seed = seed
         self.verbose = verbose
         
-        # Store number of objectives (will be set when creating problem)
-        self.n_objectives = None
-        
-        # Problem will be created when we know n_objectives
-        self.problem = None
-        
-    def set_problem(self, n_objectives: int):
-        """
-        Create the optimization problem with specified number of objectives.
-        
-        Parameters
-        ----------
-        n_objectives : int
-            Number of objectives to optimize
-        """
-        self.n_objectives = n_objectives
+        # Create problem
         self.problem = EEGOptimizationProblem(
-            n_nodes=self.n_nodes,
-            n_bands=self.n_bands,
-            evaluate_func=self.evaluate_func,
-            n_objectives=n_objectives
+            n_nodes=n_nodes,
+            n_bands=n_bands,
+            evaluate_func=evaluate_func,
+            n_objectives=3
         )
         
         # Set default mutation probability if not specified
@@ -205,15 +190,10 @@ class NSGAIIOptimizer:
         if verbose is None:
             verbose = self.verbose
         
-        # Ensure problem is created
-        if self.problem is None:
-            raise RuntimeError("Problem not initialized. Call set_problem() first.")
-        
         if verbose:
             print(f"\nStarting NSGA-II optimization with pymoo...")
             print(f"  Population size: {self.population_size}")
             print(f"  Generations: {self.n_generations}")
-            print(f"  Objectives: {self.n_objectives}")
             print(f"  Nodes: {self.n_nodes}")
             print(f"  Bands: {self.n_bands}")
         

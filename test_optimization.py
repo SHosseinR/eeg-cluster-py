@@ -110,7 +110,7 @@ def test_nsga_optimizer():
     # Define simple test evaluation function
     def test_evaluate(node, band):
         """Test function: prefer low node, high band."""
-        return np.array([float(node), float(5 - 2 * band), float(node + band)])
+        return np.array([float(node), float(5 - 2 * band), 0])
     
     # Create optimizer
     optimizer = NSGAIIOptimizer(
@@ -121,9 +121,6 @@ def test_nsga_optimizer():
         population_size=20,
         n_generations=10
     )
-    
-    # Set problem with 3 objectives for this test
-    optimizer.set_problem(n_objectives=3)
     
     print(f"  ✓ Optimizer created")
     print(f"    - Population size: {optimizer.population_size}")
