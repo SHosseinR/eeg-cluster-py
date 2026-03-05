@@ -22,7 +22,7 @@ class EEGOptimizationProblem(Problem):
     - x[1]: Frequency band (integer, 0 to n_bands-1)
     
     Objectives:
-    - f[0], f[1], f[2]: Three network measures to optimize
+    - f[0] ... f[n-1]: Network measures to optimize
     """
     
     def __init__(self, 
@@ -91,6 +91,7 @@ class NSGAIIOptimizer:
                  n_bands: int,
                  band_names: List[str],
                  evaluate_func: Callable,
+                 n_objectives: int = 3,
                  population_size: int = 100,
                  n_generations: int = 50,
                  crossover_prob: float = 0.9,
@@ -112,6 +113,8 @@ class NSGAIIOptimizer:
             Names of frequency bands
         evaluate_func : callable
             Function to evaluate objectives: func(node, band) -> objectives array
+        n_objectives : int
+            Number of objectives to optimize (default: 3)
         population_size : int
             Population size (default: 100)
         n_generations : int
@@ -133,6 +136,9 @@ class NSGAIIOptimizer:
         self.n_bands = n_bands
         self.band_names = band_names
         self.evaluate_func = evaluate_func
+        self.n_objectives = int(n_objectives)
+        if self.n_objectives < 1:
+            raise ValueError("n_objectives must be >= 1.")
         self.population_size = population_size
         self.n_generations = n_generations
         self.seed = seed
@@ -143,7 +149,7 @@ class NSGAIIOptimizer:
             n_nodes=n_nodes,
             n_bands=n_bands,
             evaluate_func=evaluate_func,
-            n_objectives=3
+            n_objectives=self.n_objectives
         )
         
         # Set default mutation probability if not specified
@@ -194,6 +200,7 @@ class NSGAIIOptimizer:
             print(f"\nStarting NSGA-II optimization with pymoo...")
             print(f"  Population size: {self.population_size}")
             print(f"  Generations: {self.n_generations}")
+            print(f"  Objectives: {self.n_objectives}")
             print(f"  Nodes: {self.n_nodes}")
             print(f"  Bands: {self.n_bands}")
         
@@ -272,6 +279,12 @@ class NSGAIIOptimizer:
         
         if preference_weights is not None:
             # Weighted sum approach
+            preference_weights = np.asarray(preference_weights, dtype=float)
+            if preference_weights.shape[0] != objectives.shape[1]:
+                raise ValueError(
+                    f"preference_weights length ({preference_weights.shape[0]}) must match "
+                    f"number of objectives ({objectives.shape[1]})."
+                )
             weighted_sums = np.sum(preference_weights * objectives, axis=1)
             best_idx = np.argmin(weighted_sums)
         else:
@@ -332,14 +345,16 @@ class NSGAIIOptimizer:
 if __name__ == "__main__":
     # Define a simple test function
     def test_evaluate(node, band):
-        """Test evaluation function (3 objectives)."""
+        """Test evaluation function (4 objectives)."""
         # Objective 1: prefer lower node indices
         obj1 = float(node)
         # Objective 2: prefer higher band indices
         obj2 = float(5 - band)
         # Objective 3: prefer node + band = 5
         obj3 = abs(node + band - 5)
-        return np.array([obj1, obj2, obj3])
+        # Objective 4: prefer middle node index
+        obj4 = abs(node - 4.5)
+        return np.array([obj1, obj2, obj3, obj4])
     
     # Create optimizer
     print("Creating NSGA-II optimizer with pymoo...")
@@ -348,6 +363,7 @@ if __name__ == "__main__":
         n_bands=5,
         band_names=['delta', 'theta', 'alpha', 'beta', 'gamma'],
         evaluate_func=test_evaluate,
+        n_objectives=4,
         population_size=50,
         n_generations=30,
         seed=42
@@ -382,4 +398,3 @@ if __name__ == "__main__":
     print(f"  Objective ranges:")
     for obj, ranges in summary['objective_ranges'].items():
         print(f"    {obj}: [{ranges['min']:.3f}, {ranges['max']:.3f}], mean={ranges['mean']:.3f}")
-

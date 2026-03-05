@@ -6,7 +6,7 @@ Configuration for NSGA-II optimization of EEG connectivity
 # OPTIMIZATION PARAMETERS
 # ============================================================================
 
-# Network measures to optimize (select 3 from the available measures)
+# Network measures to optimize (select as many as needed from available measures)
 OPTIMIZATION_MEASURES = [
     'global_efficiency',
     'betweenness_centrality', 

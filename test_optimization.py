@@ -109,8 +109,13 @@ def test_nsga_optimizer():
     
     # Define simple test evaluation function
     def test_evaluate(node, band):
-        """Test function: prefer low node, high band."""
-        return np.array([float(node), float(5 - 2 * band), 0])
+        """Test function with 4 objectives."""
+        return np.array([
+            float(node),
+            float(5 - 2 * band),
+            float(abs(node + band - 5)),
+            float(abs(node - 4.5))
+        ])
     
     # Create optimizer
     optimizer = NSGAIIOptimizer(
@@ -118,6 +123,7 @@ def test_nsga_optimizer():
         n_bands=5,
         band_names=['delta', 'theta', 'alpha', 'beta', 'gamma'],
         evaluate_func=test_evaluate,
+        n_objectives=4,
         population_size=20,
         n_generations=10
     )
@@ -127,6 +133,7 @@ def test_nsga_optimizer():
     print(f"    - Generations: {optimizer.n_generations}")
     print(f"    - Nodes: {optimizer.n_nodes}")
     print(f"    - Bands: {optimizer.n_bands}")
+    print(f"    - Objectives: {optimizer.problem.n_obj}")
     
     # # Test population initialization
     # optimizer.initialize_population()
@@ -157,6 +164,8 @@ def test_nsga_optimizer():
     
     assert len(best_front) > 0
     assert len(history) == optimizer.n_generations
+    assert optimizer.problem.n_obj == 4
+    assert len(best_front[0]['objectives']) == 4
     
     # Get best solution
     best = optimizer.get_best_solution()

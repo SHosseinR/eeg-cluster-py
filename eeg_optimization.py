@@ -69,7 +69,7 @@ class EEGOptimizer:
         selected_method : str
             Connectivity method to use (e.g., 'plv', 'pdc', 'gc', 'psi')
         optimization_measures : list of str
-            Names of 3 network measures to optimize
+            Names of network measures to optimize
         nsga_config : dict
             NSGA-II configuration parameters
         simulation_config : dict
@@ -84,6 +84,8 @@ class EEGOptimizer:
         self.channel_names = channel_names
         self.selected_method = selected_method
         self.optimization_measures = optimization_measures
+        if len(self.optimization_measures) == 0:
+            raise ValueError("optimization_measures must contain at least one measure.")
         
         # Configuration
         self.nsga_config = nsga_config or NSGA_CONFIG
@@ -344,6 +346,7 @@ class EEGOptimizer:
             n_bands=self.n_bands,
             band_names=self.band_names,
             evaluate_func=evaluate_func,
+            n_objectives=len(self.optimization_measures),
             population_size=self.nsga_config['population_size'],
             n_generations=self.nsga_config['n_generations'],
             crossover_prob=self.nsga_config['crossover_prob'],
