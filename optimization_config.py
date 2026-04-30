@@ -25,6 +25,9 @@ NSGA_CONFIG = {
 }
 OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
+# Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
+OPTIMIZATION_TOP_K = 5
+
 # State-space simulation parameters
 SIMULATION_CONFIG = {
     'stimulation_duration': 1.0,      # Stimulation duration in seconds

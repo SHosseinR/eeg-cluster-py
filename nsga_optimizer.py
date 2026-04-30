@@ -288,8 +288,9 @@ class NSGAIIOptimizer:
             weighted_sums = np.sum(preference_weights * objectives, axis=1)
             best_idx = np.argmin(weighted_sums)
         else:
-            # Distance to ideal point (all objectives minimized to 0)
-            distances = np.linalg.norm(objectives, axis=1)
+            # Distance to ideal point based on Pareto-front minima
+            ideal_point = objectives.min(axis=0)
+            distances = np.linalg.norm(objectives - ideal_point, axis=1)
             best_idx = np.argmin(distances)
         
         return self.best_front[best_idx]

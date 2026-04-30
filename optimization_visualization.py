@@ -4,8 +4,62 @@ Visualization functions for NSGA-II optimization results
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import os
+
+
+def _rank_best_front(best_front: List[Dict], top_k: int) -> List[Dict]:
+    """Rank Pareto solutions by distance to ideal point and keep top-k."""
+    if not best_front:
+        return []
+
+    try:
+        top_k = int(top_k)
+    except (TypeError, ValueError):
+        top_k = len(best_front)
+
+    top_k = max(1, top_k)
+    top_k = min(top_k, len(best_front))
+
+    objectives = np.array([sol['objectives'] for sol in best_front])
+    ideal_point = objectives.min(axis=0)
+    distances = np.linalg.norm(objectives - ideal_point, axis=1)
+    order = np.argsort(distances)
+
+    ranked = []
+    for rank, idx in enumerate(order[:top_k], start=1):
+        sol = best_front[idx]
+        ranked.append({
+            'node': sol['node'],
+            'band': sol['band'],
+            'band_name': sol.get('band_name'),
+            'objectives': sol['objectives'],
+            'distance': float(distances[idx]),
+            'rank': rank,
+            'strength': 1.0 / float(rank)
+        })
+
+    return ranked
+
+
+def _collect_ranked_solutions(optimization_results: Dict, top_k: int = None) -> List[Dict]:
+    """Collect ranked solutions across subjects, computing ranks if missing."""
+    collected = []
+
+    for _, results in optimization_results.items():
+        ranked = []
+        if results.get('top_solutions'):
+            ranked = results['top_solutions']
+        elif results.get('best_front'):
+            ranked = _rank_best_front(results['best_front'], top_k or len(results['best_front']))
+
+        if top_k is not None:
+            ranked = ranked[:top_k]
+
+        for sol in ranked:
+            collected.append(sol)
+
+    return collected
 
 
 def plot_node_histogram(optimization_results: Dict, 
@@ -228,6 +282,157 @@ def plot_node_band_heatmap(optimization_results: Dict,
     return fig
 
 
+def plot_weighted_node_histogram(optimization_results: Dict,
+                                channel_names: List[str],
+                                top_k: int = None,
+                                save_path: str = None,
+                                figsize: Tuple = (12, 6)):
+    """
+    Plot weighted histogram of top-k stimulation nodes across subjects.
+    """
+    ranked_solutions = _collect_ranked_solutions(optimization_results, top_k=top_k)
+    if not ranked_solutions:
+        print("No ranked solutions to plot")
+        return
+
+    weights = np.zeros(len(channel_names), dtype=float)
+    for sol in ranked_solutions:
+        weight = float(sol.get('strength', 1.0))
+        weights[int(sol['node'])] += weight
+
+    fig, ax = plt.subplots(figsize=figsize)
+    x_pos = np.arange(len(channel_names))
+    bars = ax.bar(x_pos, weights, alpha=0.7, color='teal', edgecolor='black')
+
+    ax.set_xlabel('Channel/Node', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Weighted Strength', fontsize=12, fontweight='bold')
+    ax.set_title('Weighted Distribution of Top-K Stimulation Nodes',
+                fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(channel_names, rotation=45, ha='right')
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+
+    for bar in bars:
+        height = bar.get_height()
+        if height > 0:
+            ax.text(bar.get_x() + bar.get_width() / 2.0, height,
+                   f'{height:.2f}',
+                   ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted node histogram saved to: {save_path}")
+
+    return fig
+
+
+def plot_weighted_band_histogram(optimization_results: Dict,
+                                band_names: List[str],
+                                top_k: int = None,
+                                save_path: str = None,
+                                figsize: Tuple = (10, 6)):
+    """
+    Plot weighted histogram of top-k frequency bands across subjects.
+    """
+    ranked_solutions = _collect_ranked_solutions(optimization_results, top_k=top_k)
+    if not ranked_solutions:
+        print("No ranked solutions to plot")
+        return
+
+    weights = np.zeros(len(band_names), dtype=float)
+    for sol in ranked_solutions:
+        weight = float(sol.get('strength', 1.0))
+        weights[int(sol['band'])] += weight
+
+    fig, ax = plt.subplots(figsize=figsize)
+    x_pos = np.arange(len(band_names))
+
+    colors = ['#2ca02c', '#1f77b4', '#ff7f0e', '#d62728', '#7f7f7f']
+    bars = ax.bar(x_pos, weights, alpha=0.8, edgecolor='black',
+                 color=colors[:len(band_names)])
+
+    ax.set_xlabel('Frequency Band', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Weighted Strength', fontsize=12, fontweight='bold')
+    ax.set_title('Weighted Distribution of Top-K Frequency Bands',
+                fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(band_names, fontsize=11)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+
+    for bar in bars:
+        height = bar.get_height()
+        if height > 0:
+            ax.text(bar.get_x() + bar.get_width() / 2.0, height,
+                   f'{height:.2f}',
+                   ha='center', va='bottom', fontsize=10)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted band histogram saved to: {save_path}")
+
+    return fig
+
+
+def plot_weighted_node_band_heatmap(optimization_results: Dict,
+                                   channel_names: List[str],
+                                   band_names: List[str],
+                                   top_k: int = None,
+                                   save_path: str = None,
+                                   figsize: Tuple = (14, 10)):
+    """
+    Plot weighted heatmap of node x band combinations using top-k ranks.
+    """
+    ranked_solutions = _collect_ranked_solutions(optimization_results, top_k=top_k)
+    if not ranked_solutions:
+        print("No ranked solutions to plot")
+        return
+
+    node_band_weights = np.zeros((len(channel_names), len(band_names)), dtype=float)
+    for sol in ranked_solutions:
+        weight = float(sol.get('strength', 1.0))
+        node_band_weights[int(sol['node']), int(sol['band'])] += weight
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(node_band_weights, cmap='YlGnBu', aspect='auto', interpolation='nearest')
+
+    cbar = plt.colorbar(im, ax=ax, pad=0.02)
+    cbar.set_label('Weighted Strength', fontsize=12, fontweight='bold', rotation=270, labelpad=20)
+
+    ax.set_xticks(np.arange(len(band_names)))
+    ax.set_yticks(np.arange(len(channel_names)))
+    ax.set_xticklabels(band_names, fontsize=11)
+    ax.set_yticklabels(channel_names, fontsize=9)
+
+    ax.set_xlabel('Frequency Band', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Channel/Node', fontsize=12, fontweight='bold')
+    ax.set_title('Weighted Node x Frequency Band (Top-K)',
+                fontsize=14, fontweight='bold', pad=20)
+
+    for i in range(len(channel_names)):
+        for j in range(len(band_names)):
+            value = node_band_weights[i, j]
+            if value > 0:
+                text_color = 'white' if value > node_band_weights.max() / 2 else 'black'
+                ax.text(j, i, f"{value:.2f}", ha='center', va='center',
+                       color=text_color, fontsize=8, fontweight='bold')
+
+    ax.set_xticks(np.arange(len(band_names)) - 0.5, minor=True)
+    ax.set_yticks(np.arange(len(channel_names)) - 0.5, minor=True)
+    ax.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted node-band heatmap saved to: {save_path}")
+
+    return fig
+
+
 def plot_pareto_fronts(optimization_results: Dict,
                       optimization_measures: List[str],
                       save_path: str = None,
@@ -329,7 +534,8 @@ def plot_optimization_summary(optimization_results: Dict,
                              channel_names: List[str],
                              band_names: List[str],
                              optimization_measures: List[str],
-                             output_dir: str):
+                             output_dir: str,
+                             top_k: int = None):
     """
     Create comprehensive summary plots for optimization results.
     
@@ -357,6 +563,15 @@ def plot_optimization_summary(optimization_results: Dict,
         channel_names,
         save_path=os.path.join(output_dir, 'optimal_nodes_histogram.png')
     )
+
+    # 1b. Weighted node histogram
+    print("  - Weighted node distribution histogram")
+    plot_weighted_node_histogram(
+        optimization_results,
+        channel_names,
+        top_k=top_k,
+        save_path=os.path.join(output_dir, 'weighted_nodes_histogram.png')
+    )
     
     # 2. Band histogram
     print("  - Band distribution histogram")
@@ -364,6 +579,15 @@ def plot_optimization_summary(optimization_results: Dict,
         optimization_results,
         band_names,
         save_path=os.path.join(output_dir, 'optimal_bands_histogram.png')
+    )
+
+    # 2b. Weighted band histogram
+    print("  - Weighted band distribution histogram")
+    plot_weighted_band_histogram(
+        optimization_results,
+        band_names,
+        top_k=top_k,
+        save_path=os.path.join(output_dir, 'weighted_bands_histogram.png')
     )
     
     # 3. Node-Band heatmap
@@ -373,6 +597,16 @@ def plot_optimization_summary(optimization_results: Dict,
         channel_names,
         band_names,
         save_path=os.path.join(output_dir, 'node_band_heatmap.png')
+    )
+
+    # 3b. Weighted node-band heatmap
+    print("  - Weighted Node x Band heatmap")
+    plot_weighted_node_band_heatmap(
+        optimization_results,
+        channel_names,
+        band_names,
+        top_k=top_k,
+        save_path=os.path.join(output_dir, 'weighted_node_band_heatmap.png')
     )
     
     # 4. Pareto fronts
@@ -391,7 +625,8 @@ def create_optimization_report(optimization_results: Dict,
                               band_names: List[str],
                               optimization_measures: List[str],
                               optimization_directions: Dict[str, str],
-                              output_path: str):
+                              output_path: str,
+                              top_k: int = None):
     """
     Create text report summarizing optimization results.
     
@@ -426,6 +661,10 @@ def create_optimization_report(optimization_results: Dict,
         for measure, direction in optimization_directions.items():
             f.write(f"  - {measure}: {direction.upper()}\n")
         f.write("\n")
+
+        f.write("Top-K ranking:\n")
+        f.write("  - Distance to ideal point (L2 norm of objectives)\n")
+        f.write("  - Strength = 1 / rank (rank 1 is strongest)\n\n")
         
         # Node distribution
         optimal_nodes = [r['best_solution']['node'] for r in optimization_results.values() 
@@ -468,12 +707,32 @@ def create_optimization_report(optimization_results: Dict,
                 f.write(f"  Optimal band: {band_names[sol['band']]}\n")
                 f.write(f"  Objectives: {sol['objectives']}\n")
                 f.write(f"  Pareto front size: {len(results['best_front'])}\n")
+
+                ranked = []
+                if results.get('top_solutions'):
+                    ranked = results['top_solutions']
+                elif results.get('best_front'):
+                    ranked = _rank_best_front(results['best_front'], top_k or len(results['best_front']))
+
+                if top_k is not None:
+                    ranked = ranked[:top_k]
+
+                if ranked:
+                    f.write("  Top-K ranked solutions (distance to ideal):\n")
+                    for ranked_sol in ranked:
+                        node_name = channel_names[ranked_sol['node']]
+                        band_name = band_names[ranked_sol['band']]
+                        strength = float(ranked_sol.get('strength', 0.0))
+                        distance = float(ranked_sol.get('distance', 0.0))
+                        f.write(
+                            f"    {ranked_sol.get('rank', '?')}. "
+                            f"Node: {node_name}, Band: {band_name}, "
+                            f"Strength: {strength:.3f}, Distance: {distance:.6f}, "
+                            f"Objectives: {ranked_sol.get('objectives')}\n"
+                        )
     
     print(f"\nOptimization report saved to: {output_path}")
 
-
-# Add missing import at top
-from typing import Tuple
 
 # Example usage
 if __name__ == "__main__":

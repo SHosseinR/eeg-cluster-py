@@ -12,7 +12,8 @@ from config import (
 )
 from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
-    OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS
+    OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS,
+    OPTIMIZATION_TOP_K
 )
 
 # Import optimization modules
@@ -245,7 +246,8 @@ def main():
             channel_names=channel_names,
             band_names=list(FREQUENCY_BANDS.keys()),
             optimization_measures=OPTIMIZATION_MEASURES,
-            output_dir=OPTIMIZATION_FIGURES_DIR
+            output_dir=OPTIMIZATION_FIGURES_DIR,
+            top_k=OPTIMIZATION_TOP_K
         )
     except Exception as e:
         print(f"\nERROR creating visualizations: {str(e)}")
@@ -265,7 +267,8 @@ def main():
             band_names=list(FREQUENCY_BANDS.keys()),
             optimization_measures=OPTIMIZATION_MEASURES,
             optimization_directions=optimizer.optimization_directions,
-            output_path=report_path
+            output_path=report_path,
+            top_k=OPTIMIZATION_TOP_K
         )
     except Exception as e:
         print(f"\nERROR creating report: {str(e)}")

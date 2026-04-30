@@ -8,7 +8,7 @@ import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
-    OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG
+    OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
@@ -304,6 +304,53 @@ class EEGOptimizer:
             return np.array(objectives)
         
         return evaluate
+
+    def _rank_solutions(self, best_front: List[Dict], top_k: int) -> List[Dict]:
+        """
+        Rank Pareto solutions by distance to ideal point and keep top-k.
+
+        Parameters
+        ----------
+        best_front : list of dict
+            Pareto-optimal solutions
+        top_k : int
+            Number of solutions to keep
+
+        Returns
+        -------
+        ranked : list of dict
+            Ranked solutions with added 'rank', 'distance', and 'strength'
+        """
+        if not best_front:
+            return []
+
+        try:
+            top_k = int(top_k)
+        except (TypeError, ValueError):
+            top_k = len(best_front)
+
+        top_k = max(1, top_k)
+        top_k = min(top_k, len(best_front))
+
+        objectives = np.array([sol['objectives'] for sol in best_front])
+        ideal_point = objectives.min(axis=0)
+        distances = np.linalg.norm(objectives - ideal_point, axis=1)
+        order = np.argsort(distances)
+
+        ranked = []
+        for rank, idx in enumerate(order[:top_k], start=1):
+            sol = best_front[idx]
+            ranked.append({
+                'node': sol['node'],
+                'band': sol['band'],
+                'band_name': sol['band_name'],
+                'objectives': sol['objectives'],
+                'distance': float(distances[idx]),
+                'rank': rank,
+                'strength': 1.0 / float(rank)
+            })
+
+        return ranked
     
     def optimize_subject(self, subject_id: str, verbose: bool = True) -> Dict:
         """
@@ -359,12 +406,17 @@ class EEGOptimizer:
         
         # Get single best solution (closest to ideal point)
         best_solution = optimizer.get_best_solution()
+
+        # Rank top solutions using distance-to-ideal (strength = 1 / rank)
+        top_solutions = self._rank_solutions(best_front, OPTIMIZATION_TOP_K)
         
         # Package results
         results = {
             'subject_id': subject_id,
             'best_front': best_front,
             'best_solution': best_solution,
+            'top_solutions': top_solutions,
+            'top_k': OPTIMIZATION_TOP_K,
             'history': history,
             'baseline_activation': baseline_activation,
             'n_nodes': self.n_nodes,
