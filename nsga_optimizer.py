@@ -1,6 +1,7 @@
 """
 NSGA-II optimizer using pymoo library for EEG connectivity optimization
 """
+import inspect
 import numpy as np
 from typing import Callable, List, Dict
 
@@ -9,7 +10,7 @@ from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.optimize import minimize
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
-from pymoo.operators.sampling.rnd import IntegerRandomSampling
+from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.termination import get_termination
 
 
@@ -20,6 +21,8 @@ class EEGOptimizationProblem(Problem):
     Decision variables:
     - x[0]: Stimulation node (integer, 0 to n_nodes-1)
     - x[1]: Frequency band (integer, 0 to n_bands-1)
+    - x[2]: Stimulation duration (float)
+    - x[3]: Stimulation amplitude (float)
     
     Objectives:
     - f[0] ... f[n-1]: Network measures to optimize
@@ -29,6 +32,8 @@ class EEGOptimizationProblem(Problem):
                  n_nodes: int,
                  n_bands: int,
                  evaluate_func: Callable,
+                 duration_bounds: tuple = (0.0, 2.0),
+                 amplitude_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3):
         """
         Initialize EEG optimization problem.
@@ -45,17 +50,32 @@ class EEGOptimizationProblem(Problem):
             Number of objectives to optimize (default: 3)
         """
         self.evaluate_func = evaluate_func
+        self._accepts_continuous = self._check_accepts_continuous(evaluate_func)
         
+        duration_min, duration_max = duration_bounds
+        amplitude_min, amplitude_max = amplitude_bounds
+
         # Define problem
         super().__init__(
-            n_var=2,  # Two decision variables: node and band
+            n_var=4,  # node, band, stimulation_duration, stimulation_amplitude
             n_obj=n_objectives,  # Number of objectives
             n_constr=0,  # No constraints
-            xl=np.array([0, 0]),  # Lower bounds
-            xu=np.array([n_nodes - 1, n_bands - 1]),  # Upper bounds
-            type_var=np.int64  # Integer variables
+            xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min)]),
+            xu=np.array([float(n_nodes - 1), float(n_bands - 1), float(duration_max), float(amplitude_max)])
         )
     
+    def _check_accepts_continuous(self, func: Callable) -> bool:
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):
+            return True
+
+        params = list(signature.parameters.values())
+        if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params):
+            return True
+
+        return len(params) >= 4
+
     def _evaluate(self, X, out, *args, **kwargs):
         """
         Evaluate objectives for a population.
@@ -70,9 +90,14 @@ class EEGOptimizationProblem(Problem):
         # Evaluate each individual
         objectives = []
         for x in X:
-            node = int(x[0])
-            band = int(x[1])
-            obj = self.evaluate_func(node, band)
+            node = int(np.clip(np.round(x[0]), 0, self.xu[0]))
+            band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
+            duration = float(x[2])
+            amplitude = float(x[3])
+            if self._accepts_continuous:
+                obj = self.evaluate_func(node, band, duration, amplitude)
+            else:
+                obj = self.evaluate_func(node, band)
             objectives.append(obj)
         
         # Store objectives
@@ -91,6 +116,8 @@ class NSGAIIOptimizer:
                  n_bands: int,
                  band_names: List[str],
                  evaluate_func: Callable,
+                 duration_bounds: tuple = (0.0, 2.0),
+                 amplitude_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3,
                  population_size: int = 100,
                  n_generations: int = 50,
@@ -136,6 +163,8 @@ class NSGAIIOptimizer:
         self.n_bands = n_bands
         self.band_names = band_names
         self.evaluate_func = evaluate_func
+        self.duration_bounds = duration_bounds
+        self.amplitude_bounds = amplitude_bounds
         self.n_objectives = int(n_objectives)
         if self.n_objectives < 1:
             raise ValueError("n_objectives must be >= 1.")
@@ -149,17 +178,19 @@ class NSGAIIOptimizer:
             n_nodes=n_nodes,
             n_bands=n_bands,
             evaluate_func=evaluate_func,
+            duration_bounds=duration_bounds,
+            amplitude_bounds=amplitude_bounds,
             n_objectives=self.n_objectives
         )
         
         # Set default mutation probability if not specified
         if mutation_prob is None:
-            mutation_prob = 1.0 / self.problem.n_var  # 0.5 for 2 variables
+            mutation_prob = 1.0 / self.problem.n_var
         
         # Create algorithm
         self.algorithm = NSGA2(
             pop_size=population_size,
-            sampling=IntegerRandomSampling(),
+            sampling=FloatRandomSampling(),
             crossover=SBX(prob=crossover_prob, eta=crossover_eta, vtype=float),
             mutation=PM(prob=mutation_prob, eta=mutation_eta, vtype=float),
             eliminate_duplicates=True
@@ -226,12 +257,16 @@ class NSGAIIOptimizer:
                 F = F.reshape(1, -1)
             
             for x, f in zip(X, F):
-                node = int(x[0])
-                band = int(x[1])
+                node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
+                band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
+                duration = float(x[2])
+                amplitude = float(x[3])
                 solution = {
                     'node': node,
                     'band': band,
                     'band_name': self.band_names[band],
+                    'stimulation_duration': duration,
+                    'stimulation_amplitude': amplitude,
                     'objectives': f
                 }
                 self.best_front.append(solution)
@@ -345,7 +380,7 @@ class NSGAIIOptimizer:
 # Example usage
 if __name__ == "__main__":
     # Define a simple test function
-    def test_evaluate(node, band):
+    def test_evaluate(node, band, duration, amplitude):
         """Test evaluation function (4 objectives)."""
         # Objective 1: prefer lower node indices
         obj1 = float(node)
@@ -364,6 +399,8 @@ if __name__ == "__main__":
         n_bands=5,
         band_names=['delta', 'theta', 'alpha', 'beta', 'gamma'],
         evaluate_func=test_evaluate,
+        duration_bounds=(0.0, 2.0),
+        amplitude_bounds=(0.0, 2.0),
         n_objectives=4,
         population_size=50,
         n_generations=30,

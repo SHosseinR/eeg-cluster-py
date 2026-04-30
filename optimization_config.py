@@ -36,6 +36,10 @@ SIMULATION_CONFIG = {
     'stability_constant': 0.01,       # Constant for A matrix normalization (c in A/(c+lambda))
 }
 
+# Optimization bounds for stimulation parameters
+STIMULATION_DURATION_BOUNDS = (0.0, 2.0)
+STIMULATION_AMPLITUDE_BOUNDS = (0.0, 2.0)
+
 # Plasticity parameters
 PLASTICITY_CONFIG = {
     'plasticity_enabled': True,       # Enable plasticity-based connectivity updates

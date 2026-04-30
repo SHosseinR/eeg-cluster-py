@@ -33,6 +33,8 @@ def _rank_best_front(best_front: List[Dict], top_k: int) -> List[Dict]:
             'node': sol['node'],
             'band': sol['band'],
             'band_name': sol.get('band_name'),
+            'stimulation_duration': sol.get('stimulation_duration'),
+            'stimulation_amplitude': sol.get('stimulation_amplitude'),
             'objectives': sol['objectives'],
             'distance': float(distances[idx]),
             'rank': rank,
@@ -705,6 +707,10 @@ def create_optimization_report(optimization_results: Dict,
                 f.write(f"\n{subject_id}:\n")
                 f.write(f"  Optimal node: {channel_names[sol['node']]}\n")
                 f.write(f"  Optimal band: {band_names[sol['band']]}\n")
+                if sol.get('stimulation_duration') is not None:
+                    f.write(f"  Stimulation duration: {sol['stimulation_duration']:.4f}\n")
+                if sol.get('stimulation_amplitude') is not None:
+                    f.write(f"  Stimulation amplitude: {sol['stimulation_amplitude']:.4f}\n")
                 f.write(f"  Objectives: {sol['objectives']}\n")
                 f.write(f"  Pareto front size: {len(results['best_front'])}\n")
 
@@ -724,9 +730,14 @@ def create_optimization_report(optimization_results: Dict,
                         band_name = band_names[ranked_sol['band']]
                         strength = float(ranked_sol.get('strength', 0.0))
                         distance = float(ranked_sol.get('distance', 0.0))
+                        duration = ranked_sol.get('stimulation_duration')
+                        amplitude = ranked_sol.get('stimulation_amplitude')
+                        duration_text = f"{duration:.4f}" if duration is not None else "N/A"
+                        amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
                         f.write(
                             f"    {ranked_sol.get('rank', '?')}. "
                             f"Node: {node_name}, Band: {band_name}, "
+                            f"Duration: {duration_text}, Amplitude: {amplitude_text}, "
                             f"Strength: {strength:.3f}, Distance: {distance:.6f}, "
                             f"Objectives: {ranked_sol.get('objectives')}\n"
                         )

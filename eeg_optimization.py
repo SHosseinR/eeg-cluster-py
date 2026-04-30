@@ -8,7 +8,8 @@ import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
-    OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K
+    OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
@@ -242,7 +243,7 @@ class EEGOptimizer:
         # Import network measure functions
         from network_measures import measure_functions
         
-        def evaluate(node: int, band_idx: int) -> np.ndarray:
+        def evaluate(node: int, band_idx: int, stimulation_duration: float, stimulation_amplitude: float) -> np.ndarray:
             """
             Evaluate objectives for given stimulation parameters.
             
@@ -268,8 +269,8 @@ class EEGOptimizer:
                 adjacency_matrix=original_matrix,
                 baseline_activation=baseline_activation,
                 stimulation_node=node,
-                stimulation_duration=self.simulation_config['stimulation_duration'],
-                stimulation_amplitude=self.simulation_config['stimulation_amplitude'],
+                stimulation_duration=stimulation_duration,
+                stimulation_amplitude=stimulation_amplitude,
                 dt=self.simulation_config['dt'],
                 stability_constant=self.simulation_config['stability_constant']
             )
@@ -344,6 +345,8 @@ class EEGOptimizer:
                 'node': sol['node'],
                 'band': sol['band'],
                 'band_name': sol['band_name'],
+                'stimulation_duration': sol.get('stimulation_duration'),
+                'stimulation_amplitude': sol.get('stimulation_amplitude'),
                 'objectives': sol['objectives'],
                 'distance': float(distances[idx]),
                 'rank': rank,
@@ -394,6 +397,8 @@ class EEGOptimizer:
             band_names=self.band_names,
             evaluate_func=evaluate_func,
             n_objectives=len(self.optimization_measures),
+            duration_bounds=STIMULATION_DURATION_BOUNDS,
+            amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
             population_size=self.nsga_config['population_size'],
             n_generations=self.nsga_config['n_generations'],
             crossover_prob=self.nsga_config['crossover_prob'],
