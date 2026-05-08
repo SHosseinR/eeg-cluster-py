@@ -3,17 +3,16 @@ Complete EEG optimization pipeline using NSGA-II
 """
 import os
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Callable
 import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
-    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, OPTIMIZATION_MODE
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
-from nsga_optimizer import NSGAIIOptimizer
 
 
 _WORKER_OPTIMIZER = None
@@ -49,6 +48,7 @@ class EEGOptimizer:
                  channel_names: List[str],
                  selected_method: str,
                  optimization_measures: List[str],
+                 optimization_mode: str = None,
                  nsga_config: Dict = None,
                  simulation_config: Dict = None,
                  plasticity_config: Dict = None):
@@ -71,6 +71,8 @@ class EEGOptimizer:
             Connectivity method to use (e.g., 'plv', 'pdc', 'gc', 'psi')
         optimization_measures : list of str
             Names of network measures to optimize
+        optimization_mode : str
+            Optimization mode: 'nsga' (continuous) or 'grid' (discrete)
         nsga_config : dict
             NSGA-II configuration parameters
         simulation_config : dict
@@ -87,6 +89,13 @@ class EEGOptimizer:
         self.optimization_measures = optimization_measures
         if len(self.optimization_measures) == 0:
             raise ValueError("optimization_measures must contain at least one measure.")
+
+        self.optimization_mode = (optimization_mode or OPTIMIZATION_MODE).strip().lower()
+        if self.optimization_mode not in ("nsga", "grid"):
+            raise ValueError(
+                "optimization_mode must be 'nsga' or 'grid'. "
+                f"Got: {self.optimization_mode!r}"
+            )
         
         # Configuration
         self.nsga_config = nsga_config or NSGA_CONFIG
@@ -243,7 +252,12 @@ class EEGOptimizer:
         # Import network measure functions
         from network_measures import measure_functions
         
-        def evaluate(node: int, band_idx: int, stimulation_duration: float, stimulation_amplitude: float) -> np.ndarray:
+        def evaluate(
+            node: int,
+            band_idx: int,
+            stimulation_duration: float = None,
+            stimulation_amplitude: float = None
+        ) -> np.ndarray:
             """
             Evaluate objectives for given stimulation parameters.
             
@@ -260,6 +274,11 @@ class EEGOptimizer:
                 Objective values (to be minimized)
             """
             band_name = self.band_names[band_idx]
+
+            if stimulation_duration is None:
+                stimulation_duration = float(self.simulation_config['stimulation_duration'])
+            if stimulation_amplitude is None:
+                stimulation_amplitude = float(self.simulation_config['stimulation_amplitude'])
             
             # Get original connectivity matrix
             original_matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
@@ -305,6 +324,85 @@ class EEGOptimizer:
             return np.array(objectives)
         
         return evaluate
+
+    def _compute_pareto_front(self, solutions: List[Dict]) -> List[Dict]:
+        """
+        Compute Pareto front for a list of solutions (minimization objectives).
+
+        Parameters
+        ----------
+        solutions : list of dict
+            Solutions with 'objectives' arrays
+
+        Returns
+        -------
+        pareto_front : list of dict
+            Non-dominated solutions
+        """
+        if not solutions:
+            return []
+
+        objectives = [np.asarray(sol['objectives'], dtype=float) for sol in solutions]
+        n_solutions = len(solutions)
+        is_dominated = [False] * n_solutions
+
+        for i in range(n_solutions):
+            if is_dominated[i]:
+                continue
+            for j in range(n_solutions):
+                if i == j or is_dominated[i]:
+                    continue
+                if np.all(objectives[j] <= objectives[i]) and np.any(objectives[j] < objectives[i]):
+                    is_dominated[i] = True
+                    break
+
+        return [sol for idx, sol in enumerate(solutions) if not is_dominated[idx]]
+
+    def _select_best_solution(self, best_front: List[Dict]) -> Dict:
+        """Select the best solution from a Pareto front by distance to ideal point."""
+        if not best_front:
+            return None
+        if len(best_front) == 1:
+            return best_front[0]
+
+        objectives = np.array([sol['objectives'] for sol in best_front], dtype=float)
+        ideal_point = objectives.min(axis=0)
+        distances = np.linalg.norm(objectives - ideal_point, axis=1)
+        best_idx = int(np.argmin(distances))
+        return best_front[best_idx]
+
+    def _optimize_subject_grid(self, subject_id: str, evaluate_func: Callable, verbose: bool = True):
+        """
+        Exhaustive evaluation over node x band combinations (no NSGA).
+
+        Returns
+        -------
+        best_front : list of dict
+        history : list (empty)
+        """
+        if verbose:
+            duration = float(self.simulation_config['stimulation_duration'])
+            amplitude = float(self.simulation_config['stimulation_amplitude'])
+            print("Using discrete grid search over node x band")
+            print(f"  Fixed stimulation duration: {duration}")
+            print(f"  Fixed stimulation amplitude: {amplitude}")
+
+        solutions = []
+        for node in range(self.n_nodes):
+            for band_idx in range(self.n_bands):
+                objectives = evaluate_func(node, band_idx)
+                solutions.append({
+                    'node': node,
+                    'band': band_idx,
+                    'band_name': self.band_names[band_idx],
+                    'stimulation_duration': None,
+                    'stimulation_amplitude': None,
+                    'objectives': objectives
+                })
+
+        best_front = self._compute_pareto_front(solutions)
+        history = []
+        return best_front, history
 
     def _rank_solutions(self, best_front: List[Dict], top_k: int) -> List[Dict]:
         """
@@ -381,6 +479,7 @@ class EEGOptimizer:
             print(f"{'='*80}")
         
         # Compute baseline activation
+            print(f"Optimization mode: {self.optimization_mode.upper()}")
         baseline_activation = self._compute_baseline_activation(subject_id)
         
         if verbose:
@@ -390,27 +489,33 @@ class EEGOptimizer:
         # Create evaluation function
         evaluate_func = self._create_evaluation_function(subject_id, baseline_activation)
         
-        # Create optimizer
-        optimizer = NSGAIIOptimizer(
-            n_nodes=self.n_nodes,
-            n_bands=self.n_bands,
-            band_names=self.band_names,
-            evaluate_func=evaluate_func,
-            n_objectives=len(self.optimization_measures),
-            duration_bounds=STIMULATION_DURATION_BOUNDS,
-            amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
-            population_size=self.nsga_config['population_size'],
-            n_generations=self.nsga_config['n_generations'],
-            crossover_prob=self.nsga_config['crossover_prob'],
-            mutation_prob=self.nsga_config['mutation_prob'],
-            # tournament_size=self.nsga_config['tournament_size']
-        )
-        
-        # Run optimization
-        best_front, history = optimizer.optimize(verbose=verbose)
-        
-        # Get single best solution (closest to ideal point)
-        best_solution = optimizer.get_best_solution()
+        if self.optimization_mode == "grid":
+            best_front, history = self._optimize_subject_grid(subject_id, evaluate_func, verbose=verbose)
+            best_solution = self._select_best_solution(best_front)
+        else:
+            from nsga_optimizer import NSGAIIOptimizer
+
+            # Create optimizer
+            optimizer = NSGAIIOptimizer(
+                n_nodes=self.n_nodes,
+                n_bands=self.n_bands,
+                band_names=self.band_names,
+                evaluate_func=evaluate_func,
+                n_objectives=len(self.optimization_measures),
+                duration_bounds=STIMULATION_DURATION_BOUNDS,
+                amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
+                population_size=self.nsga_config['population_size'],
+                n_generations=self.nsga_config['n_generations'],
+                crossover_prob=self.nsga_config['crossover_prob'],
+                mutation_prob=self.nsga_config['mutation_prob'],
+                # tournament_size=self.nsga_config['tournament_size']
+            )
+            
+            # Run optimization
+            best_front, history = optimizer.optimize(verbose=verbose)
+            
+            # Get single best solution (closest to ideal point)
+            best_solution = optimizer.get_best_solution()
 
         # Rank top solutions using distance-to-ideal (strength = 1 / rank)
         top_solutions = self._rank_solutions(best_front, OPTIMIZATION_TOP_K)
@@ -427,7 +532,8 @@ class EEGOptimizer:
             'n_nodes': self.n_nodes,
             'n_bands': self.n_bands,
             'band_names': self.band_names,
-            'channel_names': self.channel_names
+            'channel_names': self.channel_names,
+            'optimization_mode': self.optimization_mode
         }
         
         if verbose:
@@ -567,6 +673,7 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         channel_names=channel_names,
         selected_method=selected_method,
         optimization_measures=OPTIMIZATION_MEASURES,
+        optimization_mode=OPTIMIZATION_MODE,
         nsga_config=NSGA_CONFIG,
         simulation_config=SIMULATION_CONFIG,
         plasticity_config=PLASTICITY_CONFIG

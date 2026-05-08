@@ -13,7 +13,7 @@ from config import (
 from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
     OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS,
-    OPTIMIZATION_TOP_K
+    OPTIMIZATION_TOP_K, OPTIMIZATION_MODE
 )
 
 # Import optimization modules
@@ -167,6 +167,7 @@ def main():
     print("NSGA-II OPTIMIZATION PIPELINE FOR EEG CONNECTIVITY")
     print("="*80)
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Optimization mode: {OPTIMIZATION_MODE}")
     
     # Create output directories
     create_output_directories()

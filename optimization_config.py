@@ -8,10 +8,12 @@ Configuration for NSGA-II optimization of EEG connectivity
 
 # Network measures to optimize (select as many as needed from available measures)
 OPTIMIZATION_MEASURES = [
-    'global_efficiency',
+    # 'global_efficiency',
     'betweenness_centrality', 
     # 'small_worldness'
-    'modularity',
+    # 'modularity',
+    'clustering_coefficient',
+    'degree',
 ]
 
 # NSGA-II Algorithm parameters (using pymoo)
@@ -28,6 +30,11 @@ OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable mult
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
+
+# Optimization mode
+# - 'nsga': NSGA-II with continuous stimulation duration/amplitude
+# - 'grid': exhaustive node x band evaluation using fixed SIMULATION_CONFIG values
+OPTIMIZATION_MODE = 'grid'
 
 # State-space simulation parameters
 SIMULATION_CONFIG = {
