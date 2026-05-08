@@ -7,9 +7,12 @@ import numpy as np
 # ============================================================================
 # PATH CONFIGURATION
 # ============================================================================
-HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
-PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
-OUTPUT_DIR = "./results"
+# HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"  # UPDATE THIS
+# PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"      # UPDATE THIS
+# OUTPUT_DIR = "./results-ADHD" 
+HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\adhd-kaggle\\set2\\Control"  # UPDATE THIS
+PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\adhd-kaggle\\set2\\ADHD"      # UPDATE THIS
+OUTPUT_DIR = "./results-ADHD-kaggle" 
 STEP_TO_START = 0
 
 # ============================================================================
@@ -32,7 +35,8 @@ FREQUENCY_BANDS = {
 # ============================================================================
 # Connectivity methods to compute
 # CONNECTIVITY_METHODS = ['pdc', 'gc', 'psi', 'plv']
-CONNECTIVITY_METHODS = ['gc_tr', 'gc', 'psi', 'plv']
+# CONNECTIVITY_METHODS = ['gc_tr', 'gc', 'psi', 'plv']
+CONNECTIVITY_METHODS = ['gc']
 CONNECTIVITY_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
 # Selected method for network analysis (change after visualization 2)
@@ -89,4 +93,5 @@ PVALUE_THRESHOLDS = [0.001, 0.01, 0.05]
 # ============================================================================
 # CHANNELS TO DROP
 # ============================================================================
-CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
+# CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
+CHANNELS_TO_DROP = []

@@ -10,7 +10,8 @@ Configuration for NSGA-II optimization of EEG connectivity
 OPTIMIZATION_MEASURES = [
     'global_efficiency',
     'betweenness_centrality', 
-    'small_worldness'
+    # 'small_worldness'
+    'modularity',
 ]
 
 # NSGA-II Algorithm parameters (using pymoo)
@@ -43,6 +44,6 @@ PLASTICITY_CONFIG = {
 }
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = 'results/optimization'
+OPTIMIZATION_OUTPUT_DIR = 'results-ADHD-kaggle/optimization'
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
-OPTIMIZATION_FIGURES_DIR = 'results/optimization/figures'
+OPTIMIZATION_FIGURES_DIR = 'results-ADHD-kaggle/optimization/figures'
