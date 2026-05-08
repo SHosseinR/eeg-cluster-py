@@ -219,3 +219,5 @@ test_data/
 .vscode/
 results/
 results-5/
+results-ADHD/
+results-ADHD-kaggle/
