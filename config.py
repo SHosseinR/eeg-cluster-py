@@ -10,9 +10,9 @@ import numpy as np
 # HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"  # UPDATE THIS
 # PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"      # UPDATE THIS
 # OUTPUT_DIR = "./results-ADHD" 
-HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\adhd-kaggle\\set2\\Control"  # UPDATE THIS
-PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\adhd-kaggle\\set2\\ADHD"      # UPDATE THIS
-OUTPUT_DIR = "./results-ADHD-kaggle" 
+HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
+PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
+OUTPUT_DIR = "./results-MDD" 
 STEP_TO_START = 0
 
 # ============================================================================
@@ -93,5 +93,5 @@ PVALUE_THRESHOLDS = [0.001, 0.01, 0.05]
 # ============================================================================
 # CHANNELS TO DROP
 # ============================================================================
-# CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
-CHANNELS_TO_DROP = []
+CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
+# CHANNELS_TO_DROP = []

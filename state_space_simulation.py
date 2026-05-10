@@ -86,7 +86,7 @@ def create_stimulation_signal(n_nodes, stimulation_node, duration, dt, amplitude
     return U
 
 
-def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001):
+def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001, leak=0.0):
     """
     Simulate EEG dynamics with state-space model:
     
@@ -114,6 +114,8 @@ def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001):
         Stimulation signal
     dt : float
         Time step for simulation (default: 0.001 seconds)
+    leak : float
+        Identity damping coefficient for A' = A - leak * I
         
     Returns
     -------
@@ -133,7 +135,7 @@ def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001):
         x0 = x0.reshape(-1, 1)
     if xbar.ndim == 1:
         xbar = xbar.reshape(-1, 1)
-    
+
     # Get dimensions
     n_nodes = A.shape[0]
     n_timesteps = U.shape[1]
@@ -149,14 +151,23 @@ def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001):
         
         # Compute derivative: dx/dt = A*x - A*xbar + B*u
         u_t = U[:, t].reshape(-1, 1)
-        dxdt = np.matmul(A, xt) - np.matmul(A, xbar) + np.matmul(B, u_t)
+        # Add identity damping: A' = A - leak * I
+        dxdt = (
+            np.matmul(A, xt)
+            - np.matmul(A, xbar)
+            - leak * (xt - xbar)
+            + np.matmul(B, u_t)
+        )
         
         # Euler integration
         xt = xt + dxdt * dt
+        # if t % 100 == 0:
+        #     print(f"Time {t*dt:.3f}s: {np.matmul(B, u_t)=}, {dxdt=}, {xt=}")
     
     # Return full trajectory and final state
     x_final = x[:, -1]
-    
+    # print(f'{x0=}, {xbar=}, {x_final=}')
+
     return x, x_final
 
 
@@ -179,18 +190,19 @@ def compute_activation_changes(x_baseline, x_final):
     """
     # Compute ratio: final / baseline
     # Add small epsilon to avoid division by zero
+    # print(f'{x_baseline=}, {x_final=}')
     epsilon = 1e-10
     activation_ratios = (x_final + epsilon) / (x_baseline + epsilon)
     
     # Clip extreme values to reasonable range [0.1, 10.0]
     activation_ratios = np.clip(activation_ratios, 0.1, 10.0)
-    
+    # print(f'{activation_ratios=}')
     return activation_ratios
 
 
 def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
                        stimulation_duration=1.0, stimulation_amplitude=1.0,
-                       dt=0.001, stability_constant=0.01):
+                       dt=0.001, stability_constant=0.01, leak=0.0):
     """
     Complete pipeline for simulating EEG dynamics with stimulation.
     
@@ -210,6 +222,8 @@ def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
         Time step for simulation (default: 0.001)
     stability_constant : float
         Constant for matrix normalization (default: 0.01)
+    leak : float
+        Identity damping coefficient for A' = A - leak * I
         
     Returns
     -------
@@ -224,20 +238,21 @@ def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
     
     # Normalize adjacency matrix for stable dynamics
     A_norm = normalize_adjacency_matrix(adjacency_matrix, stability_constant)
-    
+    # print(f'{A_norm=}')
+    # print(f'{stimulation_amplitude=}')
     # Create control matrix
     B = create_control_matrix(n_nodes, stimulation_node)
     
     # Create stimulation signal
     U = create_stimulation_signal(n_nodes, stimulation_node, 
                                   stimulation_duration, dt, stimulation_amplitude)
-    
+    # print(f'{U=}, {B=}')
     # Initial state is baseline
     x0 = baseline_activation.copy()
     xbar = baseline_activation.copy()
     
     # Run simulation
-    trajectory, x_final = simulate_eeg_dynamics(A_norm, x0, xbar, B, U, dt)
+    trajectory, x_final = simulate_eeg_dynamics(A_norm, x0, xbar, B, U, dt, leak)
     
     # Compute activation changes
     activation_ratios = compute_activation_changes(baseline_activation, x_final)

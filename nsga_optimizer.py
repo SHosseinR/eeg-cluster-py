@@ -203,6 +203,32 @@ class NSGAIIOptimizer:
         self.result = None
         self.best_front = None
         self.history = []
+        self.all_solutions = []
+
+    def _build_solutions(self, X: np.ndarray, F: np.ndarray) -> List[Dict]:
+        if X is None or F is None:
+            return []
+
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+            F = F.reshape(1, -1)
+
+        solutions = []
+        for x, f in zip(X, F):
+            node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
+            band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
+            duration = float(x[2])
+            amplitude = float(x[3])
+            solutions.append({
+                'node': node,
+                'band': band,
+                'band_name': self.band_names[band],
+                'stimulation_duration': duration,
+                'stimulation_amplitude': amplitude,
+                'objectives': f
+            })
+
+        return solutions
     
     def optimize(self, verbose: bool = None):
         """
@@ -223,6 +249,11 @@ class NSGAIIOptimizer:
             - 'objectives': Objective values
         history : list of dict
             History of optimization (objectives per generation)
+
+        Notes
+        -----
+        Populates `self.all_solutions` with all evaluated solutions collected
+        from optimization history (or final population if history is unavailable).
         """
         if verbose is None:
             verbose = self.verbose
@@ -246,30 +277,42 @@ class NSGAIIOptimizer:
         )
         
         # Extract Pareto front
-        self.best_front = []
-        if self.result.X is not None:
-            X = self.result.X
-            F = self.result.F
-            
-            # Handle single solution (1D array)
-            if X.ndim == 1:
-                X = X.reshape(1, -1)
-                F = F.reshape(1, -1)
-            
-            for x, f in zip(X, F):
-                node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
-                band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
-                duration = float(x[2])
-                amplitude = float(x[3])
-                solution = {
-                    'node': node,
-                    'band': band,
-                    'band_name': self.band_names[band],
-                    'stimulation_duration': duration,
-                    'stimulation_amplitude': amplitude,
-                    'objectives': f
-                }
-                self.best_front.append(solution)
+        self.best_front = self._build_solutions(self.result.X, self.result.F)
+
+        # Collect all solutions from history (fallback to final population)
+        all_X = []
+        all_F = []
+        if hasattr(self.result, 'history') and self.result.history is not None:
+            for h in self.result.history:
+                pop = getattr(h, 'pop', None)
+                if pop is None:
+                    continue
+                X = pop.get("X")
+                F = pop.get("F")
+                if X is None or F is None:
+                    continue
+                if X.ndim == 1:
+                    X = X.reshape(1, -1)
+                    F = F.reshape(1, -1)
+                all_X.append(X)
+                all_F.append(F)
+
+        if not all_X and getattr(self.result, 'pop', None) is not None:
+            X = self.result.pop.get("X")
+            F = self.result.pop.get("F")
+            if X is not None and F is not None:
+                if X.ndim == 1:
+                    X = X.reshape(1, -1)
+                    F = F.reshape(1, -1)
+                all_X = [X]
+                all_F = [F]
+
+        if all_X:
+            all_X = np.vstack(all_X)
+            all_F = np.vstack(all_F)
+            self.all_solutions = self._build_solutions(all_X, all_F)
+        else:
+            self.all_solutions = list(self.best_front)
         
         # Extract history
         self.history = []

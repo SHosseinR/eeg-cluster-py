@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import os
 
 
-def _rank_best_front(best_front: List[Dict], top_k: int) -> List[Dict]:
+def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = None) -> List[Dict]:
     """Rank Pareto solutions by distance to ideal point and keep top-k."""
     if not best_front:
         return []
@@ -22,7 +22,10 @@ def _rank_best_front(best_front: List[Dict], top_k: int) -> List[Dict]:
     top_k = min(top_k, len(best_front))
 
     objectives = np.array([sol['objectives'] for sol in best_front])
-    ideal_point = objectives.min(axis=0)
+    if objective_mode == "distance_to_gt":
+        ideal_point = np.zeros(objectives.shape[1], dtype=float)
+    else:
+        ideal_point = objectives.min(axis=0)
     distances = np.linalg.norm(objectives - ideal_point, axis=1)
     order = np.argsort(distances)
 
@@ -53,7 +56,11 @@ def _collect_ranked_solutions(optimization_results: Dict, top_k: int = None) -> 
         if results.get('top_solutions'):
             ranked = results['top_solutions']
         elif results.get('best_front'):
-            ranked = _rank_best_front(results['best_front'], top_k or len(results['best_front']))
+            ranked = _rank_best_front(
+                results['best_front'],
+                top_k or len(results['best_front']),
+                objective_mode=results.get('objective_mode')
+            )
 
         if top_k is not None:
             ranked = ranked[:top_k]
@@ -647,6 +654,35 @@ def create_optimization_report(optimization_results: Dict,
     output_path : str
         Path to save report
     """
+    objective_mode = None
+    healthy_baselines = None
+    stored_measures = None
+    for _, results in optimization_results.items():
+        if isinstance(results, dict):
+            if objective_mode is None:
+                objective_mode = results.get('objective_mode')
+            if healthy_baselines is None:
+                healthy_baselines = results.get('healthy_measure_baselines')
+            if stored_measures is None:
+                stored_measures = results.get('optimization_measures')
+        if objective_mode or healthy_baselines or stored_measures:
+            break
+
+    if stored_measures:
+        optimization_measures = list(stored_measures)
+
+    def _distance_to_gt(values):
+        if healthy_baselines is None:
+            return None
+        diffs = []
+        for measure_name, value in zip(optimization_measures, values):
+            baseline = healthy_baselines.get(measure_name)
+            if baseline is None:
+                return None
+            denom = baseline if abs(baseline) > 1e-10 else 1.0
+            diffs.append(abs(float(value) - float(baseline)) / abs(denom))
+        return float(np.linalg.norm(diffs))
+
     with open(output_path, 'w') as f:
         f.write("="*80 + "\n")
         f.write("NSGA-II OPTIMIZATION RESULTS SUMMARY\n")
@@ -656,7 +692,15 @@ def create_optimization_report(optimization_results: Dict,
         f.write(f"Total subjects optimized: {len(optimization_results)}\n")
         f.write(f"Number of nodes: {len(channel_names)}\n")
         f.write(f"Number of frequency bands: {len(band_names)}\n")
-        f.write(f"Optimization measures: {', '.join(optimization_measures)}\n\n")
+        f.write(f"Optimization measures: {', '.join(optimization_measures)}\n")
+        f.write(f"Objective mode: {objective_mode or 'unknown'}\n\n")
+
+        if healthy_baselines:
+            f.write("Healthy baselines (GT):\n")
+            for measure_name in optimization_measures:
+                if measure_name in healthy_baselines:
+                    f.write(f"  - {measure_name}: {healthy_baselines[measure_name]:.6f}\n")
+            f.write("\n")
         
         # Optimization directions
         f.write("Optimization directions:\n")
@@ -665,7 +709,10 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
 
         f.write("Top-K ranking:\n")
-        f.write("  - Distance to ideal point (L2 norm of objectives)\n")
+        if objective_mode == 'distance_to_gt':
+            f.write("  - Distance to GT (L2 norm of objective vector; 0 = perfect match)\n")
+        else:
+            f.write("  - Distance to ideal point (L2 norm of objectives)\n")
         f.write("  - Strength = 1 / rank (rank 1 is strongest)\n\n")
         
         # Node distribution
@@ -712,13 +759,33 @@ def create_optimization_report(optimization_results: Dict,
                 if sol.get('stimulation_amplitude') is not None:
                     f.write(f"  Stimulation amplitude: {sol['stimulation_amplitude']:.4f}\n")
                 f.write(f"  Objectives: {sol['objectives']}\n")
+
+                initial_metrics = results.get('initial_metrics')
+                final_metrics = results.get('final_metrics')
+                if initial_metrics is not None:
+                    f.write(f"  Initial metrics: {initial_metrics}\n")
+                if final_metrics is not None:
+                    f.write(f"  Final metrics: {final_metrics}\n")
+
+                if initial_metrics is not None:
+                    dist_initial = _distance_to_gt(initial_metrics)
+                    if dist_initial is not None:
+                        f.write(f"  Distance to GT (initial): {dist_initial:.6f}\n")
+                if final_metrics is not None:
+                    dist_final = _distance_to_gt(final_metrics)
+                    if dist_final is not None:
+                        f.write(f"  Distance to GT (final): {dist_final:.6f}\n")
                 f.write(f"  Pareto front size: {len(results['best_front'])}\n")
 
                 ranked = []
                 if results.get('top_solutions'):
                     ranked = results['top_solutions']
                 elif results.get('best_front'):
-                    ranked = _rank_best_front(results['best_front'], top_k or len(results['best_front']))
+                    ranked = _rank_best_front(
+                        results['best_front'],
+                        top_k or len(results['best_front']),
+                        objective_mode=objective_mode
+                    )
 
                 if top_k is not None:
                     ranked = ranked[:top_k]
@@ -734,11 +801,25 @@ def create_optimization_report(optimization_results: Dict,
                         amplitude = ranked_sol.get('stimulation_amplitude')
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
+                        gt_distance = None
+                        if objective_mode == 'distance_to_gt':
+                            obj_vals = ranked_sol.get('objectives')
+                            if obj_vals is not None:
+                                try:
+                                    gt_distance = float(np.linalg.norm(np.array(obj_vals, dtype=float)))
+                                except (TypeError, ValueError):
+                                    gt_distance = None
+
+                        if gt_distance is not None:
+                            distance_text = f"{gt_distance:.6f}"
+                        else:
+                            distance_text = f"{distance:.6f}"
+
                         f.write(
                             f"    {ranked_sol.get('rank', '?')}. "
                             f"Node: {node_name}, Band: {band_name}, "
                             f"Duration: {duration_text}, Amplitude: {amplitude_text}, "
-                            f"Strength: {strength:.3f}, Distance: {distance:.6f}, "
+                            f"Strength: {strength:.3f}, Distance: {distance_text}, "
                             f"Objectives: {ranked_sol.get('objectives')}\n"
                         )
     

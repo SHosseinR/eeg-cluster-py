@@ -3,13 +3,14 @@ Complete EEG optimization pipeline using NSGA-II
 """
 import os
 import numpy as np
-from typing import Dict, List, Tuple, Callable
+from typing import Dict, List, Tuple, Callable, Optional
 import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
-    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, OPTIMIZATION_MODE
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, OPTIMIZATION_MODE,
+    GRID_USE_PARETO_ONLY, OPTIMIZATION_OBJECTIVE_MODE
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
@@ -49,6 +50,7 @@ class EEGOptimizer:
                  selected_method: str,
                  optimization_measures: List[str],
                  optimization_mode: str = None,
+                 objective_mode: str = None,
                  nsga_config: Dict = None,
                  simulation_config: Dict = None,
                  plasticity_config: Dict = None):
@@ -73,6 +75,8 @@ class EEGOptimizer:
             Names of network measures to optimize
         optimization_mode : str
             Optimization mode: 'nsga' (continuous) or 'grid' (discrete)
+        objective_mode : str
+            Objective mode: 'directional' or 'distance_to_gt'
         nsga_config : dict
             NSGA-II configuration parameters
         simulation_config : dict
@@ -95,6 +99,13 @@ class EEGOptimizer:
             raise ValueError(
                 "optimization_mode must be 'nsga' or 'grid'. "
                 f"Got: {self.optimization_mode!r}"
+            )
+
+        self.objective_mode = (objective_mode or OPTIMIZATION_OBJECTIVE_MODE).strip().lower()
+        if self.objective_mode not in ("directional", "distance_to_gt"):
+            raise ValueError(
+                "objective_mode must be 'directional' or 'distance_to_gt'. "
+                f"Got: {self.objective_mode!r}"
             )
         
         # Configuration
@@ -220,17 +231,19 @@ class EEGOptimizer:
         if subject_id not in self.subject_data:
             # If data not available, use random baseline
             print(f"    Warning: No raw data for {subject_id}, using random baseline")
-            return np.random.rand(self.n_nodes)
-        
+            # return np.random.randn(self.n_nodes)  # mean=0, std=1
+            raise RuntimeError(f"No raw data for subject: {subject_id}")
+
         # Get raw data
         data = self.subject_data[subject_id]['data']  # shape: (n_channels, n_samples)
-        
+
         # Compute mean over time
         baseline = np.mean(data, axis=1)
         
-        # Normalize to reasonable range
-        baseline = (baseline - np.min(baseline)) / (np.max(baseline) - np.min(baseline) + 1e-10)
-        
+        # Z-score normalization (mean=0, std=1)
+        # baseline = (baseline - np.mean(baseline)) / (np.std(baseline) + 1e-10)
+        baseline = (baseline - baseline.min()) / (baseline.max() - baseline.min() + 1e-10)
+        baseline = baseline * 0.9 + 0.1
         return baseline
     
     def _create_evaluation_function(self, subject_id: str, baseline_activation: np.ndarray):
@@ -248,82 +261,128 @@ class EEGOptimizer:
         -------
         evaluate_func : callable
             Function that takes (node, band) and returns objectives array
+        evaluate_with_details : callable
+            Function that returns (objectives, measure_values)
         """
-        # Import network measure functions
-        from network_measures import measure_functions
-        
         def evaluate(
             node: int,
             band_idx: int,
             stimulation_duration: float = None,
             stimulation_amplitude: float = None
         ) -> np.ndarray:
-            """
-            Evaluate objectives for given stimulation parameters.
-            
-            Parameters
-            ----------
-            node : int
-                Stimulation node index
-            band_idx : int
-                Frequency band index
-                
-            Returns
-            -------
-            objectives : ndarray, shape (n_objectives,)
-                Objective values (to be minimized)
-            """
-            band_name = self.band_names[band_idx]
-
-            if stimulation_duration is None:
-                stimulation_duration = float(self.simulation_config['stimulation_duration'])
-            if stimulation_amplitude is None:
-                stimulation_amplitude = float(self.simulation_config['stimulation_amplitude'])
-            
-            # Get original connectivity matrix
-            original_matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
-            
-            # Run simulation
-            sim_results = run_full_simulation(
-                adjacency_matrix=original_matrix,
+            objectives, _ = self._evaluate_solution_details(
+                subject_id=subject_id,
                 baseline_activation=baseline_activation,
-                stimulation_node=node,
+                node=node,
+                band_idx=band_idx,
                 stimulation_duration=stimulation_duration,
-                stimulation_amplitude=stimulation_amplitude,
-                dt=self.simulation_config['dt'],
-                stability_constant=self.simulation_config['stability_constant']
+                stimulation_amplitude=stimulation_amplitude
             )
-            
-            # Apply plasticity to update connectivity
-            if self.plasticity_config['plasticity_enabled']:
-                updated_matrix = compute_plasticity_effect(
-                    adjacency_matrix=original_matrix,
-                    activation_ratios=sim_results['activation_ratios'],
-                    normalize=True,
-                    scaling=self.plasticity_config['plasticity_scaling']
-                )
+            return objectives
+
+        def evaluate_with_details(
+            node: int,
+            band_idx: int,
+            stimulation_duration: float = None,
+            stimulation_amplitude: float = None
+        ) -> Tuple[np.ndarray, np.ndarray]:
+            return self._evaluate_solution_details(
+                subject_id=subject_id,
+                baseline_activation=baseline_activation,
+                node=node,
+                band_idx=band_idx,
+                stimulation_duration=stimulation_duration,
+                stimulation_amplitude=stimulation_amplitude
+            )
+
+        return evaluate, evaluate_with_details
+
+    def _compute_objectives_from_measures(self, measure_values: List[float]) -> np.ndarray:
+        """Convert raw measures into objectives based on objective mode."""
+        objectives = []
+        for measure_name, measure_value in zip(self.optimization_measures, measure_values):
+            baseline = float(self.healthy_measure_baselines[measure_name])
+            denom = baseline if abs(baseline) > 1e-10 else 1.0
+
+            if self.objective_mode == "distance_to_gt":
+                objectives.append(abs(float(measure_value) - baseline) / abs(denom))
             else:
-                updated_matrix = original_matrix
-            
-            # Compute network measures on updated matrix
-            objectives = []
-            for measure_name in self.optimization_measures:
-                measure_func = measure_functions[measure_name]
-                # print(f'{updated_matrix=}')
-                measure_value = measure_func(updated_matrix)
-                baseline = self.healthy_measure_baselines[measure_name]
-                normalized_value = measure_value / baseline
-                
-                # Convert to minimization problem
+                normalized_value = float(measure_value) / denom
                 if self.optimization_directions[measure_name] == 'maximize':
-                    # Negate for maximization
                     objectives.append(-normalized_value)
                 else:
                     objectives.append(normalized_value)
-            
-            return np.array(objectives)
-        
-        return evaluate
+
+        return np.array(objectives, dtype=float)
+
+    def _evaluate_solution_details(
+        self,
+        subject_id: str,
+        baseline_activation: np.ndarray,
+        node: int,
+        band_idx: int,
+        stimulation_duration: float = None,
+        stimulation_amplitude: float = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Evaluate objectives and return raw measure values."""
+        from network_measures import measure_functions
+
+        band_name = self.band_names[band_idx]
+
+        if stimulation_duration is None:
+            stimulation_duration = float(self.simulation_config['stimulation_duration'])
+        if stimulation_amplitude is None:
+            stimulation_amplitude = float(self.simulation_config['stimulation_amplitude'])
+
+        original_matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
+
+        sim_results = run_full_simulation(
+            adjacency_matrix=original_matrix,
+            baseline_activation=baseline_activation,
+            stimulation_node=node,
+            stimulation_duration=stimulation_duration,
+            stimulation_amplitude=stimulation_amplitude,
+            dt=self.simulation_config['dt'],
+                stability_constant=self.simulation_config['stability_constant'],
+                leak=self.simulation_config.get('leak', 0.0)
+        )
+
+        if self.plasticity_config['plasticity_enabled']:
+            updated_matrix = compute_plasticity_effect(
+                adjacency_matrix=original_matrix,
+                activation_ratios=sim_results['activation_ratios'],
+                normalize=True,
+                scaling=self.plasticity_config['plasticity_scaling']
+            )
+        else:
+            updated_matrix = original_matrix
+
+        measure_values = []
+        for measure_name in self.optimization_measures:
+            measure_func = measure_functions[measure_name]
+            measure_value = measure_func(updated_matrix)
+            measure_values.append(float(measure_value))
+
+        objectives = self._compute_objectives_from_measures(measure_values)
+        return objectives, np.array(measure_values, dtype=float)
+
+    def _extract_initial_metrics(self, subject_id: str, band_name: str) -> Optional[np.ndarray]:
+        """Extract baseline metrics from precomputed network measures."""
+        try:
+            band_data = self.network_measures['Patient'][subject_id][self.selected_method][band_name]
+        except KeyError:
+            return None
+
+        values = []
+        for measure_name in self.optimization_measures:
+            if measure_name not in band_data:
+                return None
+            value = float(band_data[measure_name])
+            if not np.isfinite(value):
+                return None
+            values.append(value)
+
+        return np.array(values, dtype=float)
 
     def _compute_pareto_front(self, solutions: List[Dict]) -> List[Dict]:
         """
@@ -359,14 +418,17 @@ class EEGOptimizer:
         return [sol for idx, sol in enumerate(solutions) if not is_dominated[idx]]
 
     def _select_best_solution(self, best_front: List[Dict]) -> Dict:
-        """Select the best solution from a Pareto front by distance to ideal point."""
+        """Select the best solution from a candidate list by distance to ideal point."""
         if not best_front:
             return None
         if len(best_front) == 1:
             return best_front[0]
 
         objectives = np.array([sol['objectives'] for sol in best_front], dtype=float)
-        ideal_point = objectives.min(axis=0)
+        if self.objective_mode == "distance_to_gt":
+            ideal_point = np.zeros(objectives.shape[1], dtype=float)
+        else:
+            ideal_point = objectives.min(axis=0)
         distances = np.linalg.norm(objectives - ideal_point, axis=1)
         best_idx = int(np.argmin(distances))
         return best_front[best_idx]
@@ -379,6 +441,7 @@ class EEGOptimizer:
         -------
         best_front : list of dict
         history : list (empty)
+        solutions : list of dict
         """
         if verbose:
             duration = float(self.simulation_config['stimulation_duration'])
@@ -390,28 +453,29 @@ class EEGOptimizer:
         solutions = []
         for node in range(self.n_nodes):
             for band_idx in range(self.n_bands):
-                objectives = evaluate_func(node, band_idx)
+                objectives, measure_values = evaluate_func(node, band_idx)
                 solutions.append({
                     'node': node,
                     'band': band_idx,
                     'band_name': self.band_names[band_idx],
                     'stimulation_duration': None,
                     'stimulation_amplitude': None,
-                    'objectives': objectives
+                    'objectives': objectives,
+                    'measure_values': measure_values
                 })
 
         best_front = self._compute_pareto_front(solutions)
         history = []
-        return best_front, history
+        return best_front, history, solutions
 
     def _rank_solutions(self, best_front: List[Dict], top_k: int) -> List[Dict]:
         """
-        Rank Pareto solutions by distance to ideal point and keep top-k.
+        Rank solutions by distance to ideal point and keep top-k.
 
         Parameters
         ----------
         best_front : list of dict
-            Pareto-optimal solutions
+            Candidate solutions
         top_k : int
             Number of solutions to keep
 
@@ -432,7 +496,10 @@ class EEGOptimizer:
         top_k = min(top_k, len(best_front))
 
         objectives = np.array([sol['objectives'] for sol in best_front])
-        ideal_point = objectives.min(axis=0)
+        if self.objective_mode == "distance_to_gt":
+            ideal_point = np.zeros(objectives.shape[1], dtype=float)
+        else:
+            ideal_point = objectives.min(axis=0)
         distances = np.linalg.norm(objectives - ideal_point, axis=1)
         order = np.argsort(distances)
 
@@ -469,6 +536,7 @@ class EEGOptimizer:
         results : dict
             Optimization results including:
             - 'best_front': Pareto-optimal solutions
+            - 'all_solutions': All evaluated solutions (Pareto + dominated)
             - 'best_solution': Single best solution
             - 'history': Optimization history
             - 'baseline_activation': Baseline activation used
@@ -481,17 +549,27 @@ class EEGOptimizer:
         # Compute baseline activation
             print(f"Optimization mode: {self.optimization_mode.upper()}")
         baseline_activation = self._compute_baseline_activation(subject_id)
-        
+        # print(f'{baseline_activation=}')
+        # min_nonzero = baseline_activation[baseline_activation > 0].min()
+        # baseline_activation[baseline_activation == 0] = min_nonzero
+        # print(f'{baseline_activation=}\n\n')
+
         if verbose:
             print(f"Baseline activation computed: mean={np.mean(baseline_activation):.4f}, "
                   f"std={np.std(baseline_activation):.4f}")
         
         # Create evaluation function
-        evaluate_func = self._create_evaluation_function(subject_id, baseline_activation)
+        evaluate_func, evaluate_with_details = self._create_evaluation_function(
+            subject_id, baseline_activation
+        )
         
         if self.optimization_mode == "grid":
-            best_front, history = self._optimize_subject_grid(subject_id, evaluate_func, verbose=verbose)
-            best_solution = self._select_best_solution(best_front)
+            best_front, history, solutions = self._optimize_subject_grid(
+                subject_id, evaluate_with_details, verbose=verbose
+            )
+            all_solutions = solutions
+            ranking_pool = best_front if GRID_USE_PARETO_ONLY else solutions
+            best_solution = self._select_best_solution(ranking_pool)
         else:
             from nsga_optimizer import NSGAIIOptimizer
 
@@ -513,17 +591,41 @@ class EEGOptimizer:
             
             # Run optimization
             best_front, history = optimizer.optimize(verbose=verbose)
+
+            all_solutions = getattr(optimizer, "all_solutions", None) or best_front
             
-            # Get single best solution (closest to ideal point)
-            best_solution = optimizer.get_best_solution()
+            # Get single best solution (closest to GT or ideal point)
+            ranking_pool = best_front if GRID_USE_PARETO_ONLY else all_solutions
+            best_solution = self._select_best_solution(ranking_pool)
 
         # Rank top solutions using distance-to-ideal (strength = 1 / rank)
-        top_solutions = self._rank_solutions(best_front, OPTIMIZATION_TOP_K)
+        top_solutions = self._rank_solutions(ranking_pool, OPTIMIZATION_TOP_K)
+
+        initial_metrics = None
+        final_metrics = None
+        if best_solution is not None:
+            band_idx = int(best_solution['band'])
+            band_name = best_solution.get('band_name') or self.band_names[band_idx]
+            initial_metrics = self._extract_initial_metrics(subject_id, band_name)
+
+            if 'measure_values' in best_solution:
+                final_metrics = np.array(best_solution['measure_values'], dtype=float)
+            else:
+                objectives, measure_values = evaluate_with_details(
+                    node=int(best_solution['node']),
+                    band_idx=band_idx,
+                    stimulation_duration=best_solution.get('stimulation_duration'),
+                    stimulation_amplitude=best_solution.get('stimulation_amplitude')
+                )
+                best_solution['objectives'] = objectives
+                best_solution['measure_values'] = measure_values.tolist()
+                final_metrics = measure_values
         
         # Package results
         results = {
             'subject_id': subject_id,
             'best_front': best_front,
+            'all_solutions': all_solutions,
             'best_solution': best_solution,
             'top_solutions': top_solutions,
             'top_k': OPTIMIZATION_TOP_K,
@@ -533,7 +635,13 @@ class EEGOptimizer:
             'n_bands': self.n_bands,
             'band_names': self.band_names,
             'channel_names': self.channel_names,
-            'optimization_mode': self.optimization_mode
+            'optimization_mode': self.optimization_mode,
+            'objective_mode': self.objective_mode,
+            'optimization_measures': list(self.optimization_measures),
+            'optimization_directions': dict(self.optimization_directions),
+            'healthy_measure_baselines': dict(self.healthy_measure_baselines),
+            'initial_metrics': initial_metrics.tolist() if initial_metrics is not None else None,
+            'final_metrics': final_metrics.tolist() if final_metrics is not None else None
         }
         
         if verbose:
@@ -674,6 +782,7 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         selected_method=selected_method,
         optimization_measures=OPTIMIZATION_MEASURES,
         optimization_mode=OPTIMIZATION_MODE,
+        objective_mode=OPTIMIZATION_OBJECTIVE_MODE,
         nsga_config=NSGA_CONFIG,
         simulation_config=SIMULATION_CONFIG,
         plasticity_config=PLASTICITY_CONFIG

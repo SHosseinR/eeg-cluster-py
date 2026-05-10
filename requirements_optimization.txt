@@ -20,7 +20,7 @@ dataclasses>=0.6; python_version < '3.7'  # Built-in for Python 3.7+
 tqdm>=4.60.0
 
 # Optional: For better visualization
-# plotly>=5.0.0
+plotly>=5.0.0
 # networkx>=2.6.0
 
 # Note: Most packages are already included in main requirements.txt

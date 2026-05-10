@@ -38,6 +38,7 @@ def apply_plasticity_updates(adjacency_matrix, activation_ratios, scaling=1.0):
     
     # Create matrix of pairwise activation products
     # plasticity_factor[i,j] = (R_i * R_j)^scaling
+    # print(f'{activation_ratios=}, {scaling=}')
     ratio_matrix = np.outer(activation_ratios, activation_ratios)
     plasticity_factor = np.power(ratio_matrix, scaling)
     

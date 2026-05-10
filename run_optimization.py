@@ -214,7 +214,7 @@ def main():
     print("\n" + "="*80)
     print("RUNNING OPTIMIZATION")
     print("="*80)
-    effective_workers = (os.cpu_count() or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
+    effective_workers = (os.cpu_count()-1 or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
     print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
     
     try:
