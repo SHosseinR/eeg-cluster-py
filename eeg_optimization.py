@@ -9,7 +9,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
-    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, OPTIMIZATION_MODE,
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, STIMULATION_LEAK_BOUNDS, OPTIMIZATION_MODE,
     GRID_USE_PARETO_ONLY, OPTIMIZATION_OBJECTIVE_MODE
 )
 from state_space_simulation import run_full_simulation
@@ -268,7 +268,8 @@ class EEGOptimizer:
             node: int,
             band_idx: int,
             stimulation_duration: float = None,
-            stimulation_amplitude: float = None
+            stimulation_amplitude: float = None,
+            stimulation_leak: float = None
         ) -> np.ndarray:
             objectives, _ = self._evaluate_solution_details(
                 subject_id=subject_id,
@@ -276,7 +277,8 @@ class EEGOptimizer:
                 node=node,
                 band_idx=band_idx,
                 stimulation_duration=stimulation_duration,
-                stimulation_amplitude=stimulation_amplitude
+                stimulation_amplitude=stimulation_amplitude,
+                stimulation_leak=stimulation_leak
             )
             return objectives
 
@@ -284,7 +286,8 @@ class EEGOptimizer:
             node: int,
             band_idx: int,
             stimulation_duration: float = None,
-            stimulation_amplitude: float = None
+            stimulation_amplitude: float = None,
+            stimulation_leak: float = None
         ) -> Tuple[np.ndarray, np.ndarray]:
             return self._evaluate_solution_details(
                 subject_id=subject_id,
@@ -292,7 +295,8 @@ class EEGOptimizer:
                 node=node,
                 band_idx=band_idx,
                 stimulation_duration=stimulation_duration,
-                stimulation_amplitude=stimulation_amplitude
+                stimulation_amplitude=stimulation_amplitude,
+                stimulation_leak=stimulation_leak
             )
 
         return evaluate, evaluate_with_details
@@ -322,7 +326,8 @@ class EEGOptimizer:
         node: int,
         band_idx: int,
         stimulation_duration: float = None,
-        stimulation_amplitude: float = None
+        stimulation_amplitude: float = None,
+        stimulation_leak: float = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Evaluate objectives and return raw measure values."""
         from network_measures import measure_functions
@@ -333,6 +338,8 @@ class EEGOptimizer:
             stimulation_duration = float(self.simulation_config['stimulation_duration'])
         if stimulation_amplitude is None:
             stimulation_amplitude = float(self.simulation_config['stimulation_amplitude'])
+        if stimulation_leak is None:
+            stimulation_leak = float(self.simulation_config.get('leak', 0.0))
 
         original_matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
 
@@ -343,8 +350,8 @@ class EEGOptimizer:
             stimulation_duration=stimulation_duration,
             stimulation_amplitude=stimulation_amplitude,
             dt=self.simulation_config['dt'],
-                stability_constant=self.simulation_config['stability_constant'],
-                leak=self.simulation_config.get('leak', 0.0)
+            stability_constant=self.simulation_config['stability_constant'],
+            leak=stimulation_leak
         )
 
         if self.plasticity_config['plasticity_enabled']:
@@ -443,12 +450,15 @@ class EEGOptimizer:
         history : list (empty)
         solutions : list of dict
         """
+        duration = float(self.simulation_config['stimulation_duration'])
+        amplitude = float(self.simulation_config['stimulation_amplitude'])
+        leak = float(self.simulation_config.get('leak', 0.0))
+
         if verbose:
-            duration = float(self.simulation_config['stimulation_duration'])
-            amplitude = float(self.simulation_config['stimulation_amplitude'])
             print("Using discrete grid search over node x band")
             print(f"  Fixed stimulation duration: {duration}")
             print(f"  Fixed stimulation amplitude: {amplitude}")
+            print(f"  Fixed leak: {leak}")
 
         solutions = []
         for node in range(self.n_nodes):
@@ -460,6 +470,7 @@ class EEGOptimizer:
                     'band_name': self.band_names[band_idx],
                     'stimulation_duration': None,
                     'stimulation_amplitude': None,
+                    'leak': leak,
                     'objectives': objectives,
                     'measure_values': measure_values
                 })
@@ -512,6 +523,7 @@ class EEGOptimizer:
                 'band_name': sol['band_name'],
                 'stimulation_duration': sol.get('stimulation_duration'),
                 'stimulation_amplitude': sol.get('stimulation_amplitude'),
+                'leak': sol.get('leak'),
                 'objectives': sol['objectives'],
                 'distance': float(distances[idx]),
                 'rank': rank,
@@ -582,6 +594,7 @@ class EEGOptimizer:
                 n_objectives=len(self.optimization_measures),
                 duration_bounds=STIMULATION_DURATION_BOUNDS,
                 amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
+                leak_bounds=STIMULATION_LEAK_BOUNDS,
                 population_size=self.nsga_config['population_size'],
                 n_generations=self.nsga_config['n_generations'],
                 crossover_prob=self.nsga_config['crossover_prob'],
@@ -615,7 +628,8 @@ class EEGOptimizer:
                     node=int(best_solution['node']),
                     band_idx=band_idx,
                     stimulation_duration=best_solution.get('stimulation_duration'),
-                    stimulation_amplitude=best_solution.get('stimulation_amplitude')
+                    stimulation_amplitude=best_solution.get('stimulation_amplitude'),
+                    stimulation_leak=best_solution.get('leak')
                 )
                 best_solution['objectives'] = objectives
                 best_solution['measure_values'] = measure_values.tolist()

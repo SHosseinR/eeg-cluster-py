@@ -137,6 +137,7 @@ def _build_hover_details(
                     f"subject={sol.get('subject_id', 'n/a')}",
                     f"rank={sol.get('rank', 'n/a')}",
                     f"strength={_format_value(sol.get('strength'), 3)}",
+                    f"closeness={_format_value(sol.get('distance'), 4)}",
                     f"duration={_format_value(sol.get('stimulation_duration'))}",
                     f"amplitude={_format_value(sol.get('stimulation_amplitude'))}",
                     f"leak={_format_value(sol.get('leak', leak_value))}",
@@ -229,6 +230,7 @@ def _build_scatter_3d_figure(
                     f"node={channel_names[int(sol['node'])]}",
                     f"rank={sol.get('rank', 'n/a')}",
                     f"strength={_format_value(sol.get('strength'), 3)}",
+                    f"closeness={_format_value(sol.get('distance'), 4)}",
                     f"duration={_format_value(sol.get('stimulation_duration'))}",
                     f"amplitude={_format_value(sol.get('stimulation_amplitude'))}",
                     f"leak={_format_value(sol.get('leak', leak_value))}",
@@ -265,6 +267,68 @@ def _build_scatter_3d_figure(
             zaxis=dict(title="Strength"),
         ),
         margin=dict(l=40, r=40, t=80, b=40),
+    )
+
+    return fig
+
+
+def _build_closeness_bar_figure(
+    ranked_solutions: List[Dict],
+) -> go.Figure:
+    if not ranked_solutions:
+        return go.Figure()
+
+    best_by_subject = {}
+    for sol in ranked_solutions:
+        subject_id = sol.get("subject_id")
+        distance = sol.get("distance")
+        if subject_id is None or distance is None:
+            continue
+        try:
+            distance = float(distance)
+        except (TypeError, ValueError):
+            continue
+        if subject_id not in best_by_subject or distance < best_by_subject[subject_id]:
+            best_by_subject[subject_id] = distance
+
+    if not best_by_subject:
+        return go.Figure()
+
+    subjects = sorted(best_by_subject.keys())
+    values = [best_by_subject[s] for s in subjects]
+    avg_value = float(np.mean(values)) if values else float("nan")
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=subjects,
+                y=values,
+                marker=dict(color="#1f77b4"),
+                hovertemplate="subject=%{x}<br>closeness=%{y:.4f}<extra></extra>",
+                name="Best closeness",
+            )
+        ]
+    )
+
+    annotation_text = f"Avg closeness: {avg_value:.4f}" if np.isfinite(avg_value) else "Avg closeness: n/a"
+    fig.update_layout(
+        title="Best closeness per subject (lower is better)",
+        xaxis_title="Subject",
+        yaxis_title="Closeness (distance to ideal)",
+        margin=dict(l=60, r=40, t=80, b=120),
+        annotations=[
+            dict(
+                text=annotation_text,
+                xref="paper",
+                yref="paper",
+                x=0.98,
+                y=0.98,
+                showarrow=False,
+                xanchor="right",
+                yanchor="top",
+                font=dict(size=12),
+            )
+        ],
     )
 
     return fig
@@ -307,7 +371,7 @@ def main() -> None:
         raise FileNotFoundError(f"Optimization results not found: {results_path}")
 
     optimization_results = _load_pickle_dict(results_path)
-    print(f'{optimization_results=}')
+    # print(f'{optimization_results=}')
     metadata = _find_metadata(optimization_results)
     if metadata is None:
         raise RuntimeError("Results file missing band_names/channel_names metadata")
@@ -342,6 +406,8 @@ def main() -> None:
         leak_value,
     )
 
+    closeness_fig = _build_closeness_bar_figure(ranked_solutions)
+
     html_output = (
         args.html_output
         if args.html_output is not None
@@ -351,6 +417,7 @@ def main() -> None:
 
     heatmap_html = pio.to_html(heatmap_fig, full_html=False, include_plotlyjs="inline")
     scatter_html = pio.to_html(scatter_fig, full_html=False, include_plotlyjs=False)
+    closeness_html = pio.to_html(closeness_fig, full_html=False, include_plotlyjs=False)
 
     full_html = """<!DOCTYPE html>
 <html lang="en">
@@ -369,9 +436,12 @@ def main() -> None:
     <h2>3D view of ranked solutions</h2>
     <p>Each point represents a ranked solution. z-axis shows strength.</p>
     {scatter_div}
+    <h2>Best closeness per subject</h2>
+    <p>Closeness equals distance to the ideal point (same ranking criterion).</p>
+    {closeness_div}
 </body>
 </html>
-""".format(heatmap_div=heatmap_html, scatter_div=scatter_html)
+""".format(heatmap_div=heatmap_html, scatter_div=scatter_html, closeness_div=closeness_html)
 
     with open(html_output, "w", encoding="utf-8") as f:
         f.write(full_html)

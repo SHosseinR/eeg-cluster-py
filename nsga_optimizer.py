@@ -23,6 +23,7 @@ class EEGOptimizationProblem(Problem):
     - x[1]: Frequency band (integer, 0 to n_bands-1)
     - x[2]: Stimulation duration (float)
     - x[3]: Stimulation amplitude (float)
+    - x[4]: Leak (float)
     
     Objectives:
     - f[0] ... f[n-1]: Network measures to optimize
@@ -34,6 +35,7 @@ class EEGOptimizationProblem(Problem):
                  evaluate_func: Callable,
                  duration_bounds: tuple = (0.0, 2.0),
                  amplitude_bounds: tuple = (0.0, 2.0),
+                 leak_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3):
         """
         Initialize EEG optimization problem.
@@ -45,23 +47,31 @@ class EEGOptimizationProblem(Problem):
         n_bands : int
             Number of frequency bands
         evaluate_func : callable
-            Function to evaluate objectives: func(node, band) -> objectives array
+            Function to evaluate objectives: func(node, band, duration, amplitude, leak) -> objectives array
         n_objectives : int
             Number of objectives to optimize (default: 3)
         """
         self.evaluate_func = evaluate_func
         self._accepts_continuous = self._check_accepts_continuous(evaluate_func)
+        self._accepts_leak = self._check_accepts_leak(evaluate_func)
         
         duration_min, duration_max = duration_bounds
         amplitude_min, amplitude_max = amplitude_bounds
+        leak_min, leak_max = leak_bounds
 
         # Define problem
         super().__init__(
-            n_var=4,  # node, band, stimulation_duration, stimulation_amplitude
+            n_var=5,  # node, band, stimulation_duration, stimulation_amplitude, leak
             n_obj=n_objectives,  # Number of objectives
             n_constr=0,  # No constraints
-            xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min)]),
-            xu=np.array([float(n_nodes - 1), float(n_bands - 1), float(duration_max), float(amplitude_max)])
+            xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
+            xu=np.array([
+                float(n_nodes - 1),
+                float(n_bands - 1),
+                float(duration_max),
+                float(amplitude_max),
+                float(leak_max)
+            ])
         )
     
     def _check_accepts_continuous(self, func: Callable) -> bool:
@@ -74,7 +84,27 @@ class EEGOptimizationProblem(Problem):
         if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params):
             return True
 
-        return len(params) >= 4
+        positional_params = [
+            p for p in params
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        return len(positional_params) >= 4
+
+    def _check_accepts_leak(self, func: Callable) -> bool:
+        try:
+            signature = inspect.signature(func)
+        except (TypeError, ValueError):
+            return True
+
+        params = list(signature.parameters.values())
+        if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params):
+            return True
+
+        positional_params = [
+            p for p in params
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        return len(positional_params) >= 5
 
     def _evaluate(self, X, out, *args, **kwargs):
         """
@@ -82,8 +112,8 @@ class EEGOptimizationProblem(Problem):
         
         Parameters
         ----------
-        X : ndarray, shape (n_pop, 2)
-            Population of solutions (node, band pairs)
+        X : ndarray, shape (n_pop, 5)
+            Population of solutions (node, band, duration, amplitude, leak)
         out : dict
             Output dictionary to store objectives
         """
@@ -94,7 +124,10 @@ class EEGOptimizationProblem(Problem):
             band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
             duration = float(x[2])
             amplitude = float(x[3])
-            if self._accepts_continuous:
+            leak = float(x[4])
+            if self._accepts_leak:
+                obj = self.evaluate_func(node, band, duration, amplitude, leak)
+            elif self._accepts_continuous:
                 obj = self.evaluate_func(node, band, duration, amplitude)
             else:
                 obj = self.evaluate_func(node, band)
@@ -118,6 +151,7 @@ class NSGAIIOptimizer:
                  evaluate_func: Callable,
                  duration_bounds: tuple = (0.0, 2.0),
                  amplitude_bounds: tuple = (0.0, 2.0),
+                 leak_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3,
                  population_size: int = 100,
                  n_generations: int = 50,
@@ -139,7 +173,7 @@ class NSGAIIOptimizer:
         band_names : list of str
             Names of frequency bands
         evaluate_func : callable
-            Function to evaluate objectives: func(node, band) -> objectives array
+            Function to evaluate objectives: func(node, band, duration, amplitude, leak) -> objectives array
         n_objectives : int
             Number of objectives to optimize (default: 3)
         population_size : int
@@ -151,7 +185,7 @@ class NSGAIIOptimizer:
         crossover_eta : float
             Crossover distribution index for SBX (default: 15.0)
         mutation_prob : float
-            Mutation probability (default: 1/n_var = 0.5 for 2 variables)
+            Mutation probability (default: 1/n_var)
         mutation_eta : float
             Mutation distribution index for PM (default: 20.0)
         seed : int
@@ -165,6 +199,7 @@ class NSGAIIOptimizer:
         self.evaluate_func = evaluate_func
         self.duration_bounds = duration_bounds
         self.amplitude_bounds = amplitude_bounds
+        self.leak_bounds = leak_bounds
         self.n_objectives = int(n_objectives)
         if self.n_objectives < 1:
             raise ValueError("n_objectives must be >= 1.")
@@ -180,6 +215,7 @@ class NSGAIIOptimizer:
             evaluate_func=evaluate_func,
             duration_bounds=duration_bounds,
             amplitude_bounds=amplitude_bounds,
+            leak_bounds=leak_bounds,
             n_objectives=self.n_objectives
         )
         
@@ -219,12 +255,14 @@ class NSGAIIOptimizer:
             band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
             duration = float(x[2])
             amplitude = float(x[3])
+            leak = float(x[4])
             solutions.append({
                 'node': node,
                 'band': band,
                 'band_name': self.band_names[band],
                 'stimulation_duration': duration,
                 'stimulation_amplitude': amplitude,
+                'leak': leak,
                 'objectives': f
             })
 
@@ -423,7 +461,7 @@ class NSGAIIOptimizer:
 # Example usage
 if __name__ == "__main__":
     # Define a simple test function
-    def test_evaluate(node, band, duration, amplitude):
+    def test_evaluate(node, band, duration, amplitude, leak):
         """Test evaluation function (4 objectives)."""
         # Objective 1: prefer lower node indices
         obj1 = float(node)
@@ -444,6 +482,7 @@ if __name__ == "__main__":
         evaluate_func=test_evaluate,
         duration_bounds=(0.0, 2.0),
         amplitude_bounds=(0.0, 2.0),
+        leak_bounds=(0.0, 2.0),
         n_objectives=4,
         population_size=50,
         n_generations=30,

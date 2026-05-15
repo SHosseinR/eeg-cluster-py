@@ -28,7 +28,7 @@ NSGA_CONFIG = {
     'n_generations': 50,              # Number of generations
     'crossover_prob': 0.9,            # Crossover probability
     'crossover_eta': 15.0,            # Distribution index for SBX crossover
-    'mutation_prob': None,            # Mutation probability (None = 1/n_var = 0.5 for 2 variables)
+    'mutation_prob': None,            # Mutation probability (None = 1/n_var)
     'mutation_eta': 20.0,             # Distribution index for polynomial mutation
     'seed': None,                     # Random seed for reproducibility (None = random)
 }
@@ -45,7 +45,7 @@ GRID_USE_PARETO_ONLY = True
 # Optimization mode
 # - 'nsga': NSGA-II with continuous stimulation duration/amplitude
 # - 'grid': exhaustive node x band evaluation using fixed SIMULATION_CONFIG values
-OPTIMIZATION_MODE = 'nsga'
+OPTIMIZATION_MODE = 'grid'
 
 # Objective mode (how objectives are computed)
 # - 'directional': maximize/minimize based on Patient vs Healthy direction
@@ -62,15 +62,19 @@ OPTIMIZATION_OBJECTIVE_MODE = 'distance_to_gt'
 # }
 SIMULATION_CONFIG = {
     'stimulation_duration': 10,      # Stimulation duration in seconds
-    'stimulation_amplitude': 0.1,     # Stimulation amplitude
+    'stimulation_amplitude': 1,     # Stimulation amplitude
     'dt': 0.01,                      # Time step for simulation (seconds)
     'stability_constant': 0.01,       # Constant for A matrix normalization (c in A/(c+lambda))
     'leak': 1,                      # Identity damping for A' = A - leak * I
 }
 
 # Optimization bounds for stimulation parameters
+# STIMULATION_DURATION_BOUNDS = (1, 20)
+# STIMULATION_AMPLITUDE_BOUNDS = (0.03, 0.3)
+# STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
 STIMULATION_DURATION_BOUNDS = (1, 20)
-STIMULATION_AMPLITUDE_BOUNDS = (0.03, 0.3)
+STIMULATION_AMPLITUDE_BOUNDS = (0.1, 2)
+STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
 
 # Plasticity parameters
 PLASTICITY_CONFIG = {
@@ -82,6 +86,6 @@ PLASTICITY_CONFIG = {
 OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = 'results-MDD/optimization-nsga-allE-fixed-duration-amplitude-distance_to_gt-pareto'
+OPTIMIZATION_OUTPUT_DIR = 'results-MDD/optimization-grid-allE-distance_to_gt'
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
-OPTIMIZATION_FIGURES_DIR = 'results-MDD/optimization-nsga-allE-fixed-duration-amplitude-distance_to_gt-pareto/optimization/figures'
+OPTIMIZATION_FIGURES_DIR = 'results-MDD/optimization-grid-allE-distance_to_gt/optimization/figures'
