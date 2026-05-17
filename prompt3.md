@@ -1,3 +1,8 @@
+there is a project which is a pipeline for eeg processing and optimization for determining best stimulation node. 
+I give you full code and then ask you for modifications. 
+
+there is two major files which currently i run. first main.py and second run_optimization.py
+main.py: 
 """
 Main pipeline for EEG connectivity analysis
 """
@@ -555,3 +560,6 @@ def main():
 
 if __name__ == "__main__":
     results = main()
+
+###
+run_optimization.py: 

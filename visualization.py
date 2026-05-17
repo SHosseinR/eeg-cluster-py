@@ -366,7 +366,7 @@ def plot_top_feature_sets_per_band(top_features_by_band, output_path=None, panel
             print(f"Saved: {save_path}")
 
 
-def plot_feature_importance_per_band(best_triplets_by_band, output_path=None, panels_per_figure=4):
+def plot_feature_importance_per_band(best_triplets_by_band, output_path=None, panels_per_figure=4, top_n=None):
     """
     Visualization 6 (band-wise): feature importance bars per band, grouped as 4 panels per figure.
 
@@ -378,6 +378,8 @@ def plot_feature_importance_per_band(best_triplets_by_band, output_path=None, pa
         Base output path for figure files
     panels_per_figure : int
         Maximum number of band panels in each figure
+    top_n : int, optional
+        Limit to top-N absolute coefficients per band
     """
     band_items = list(best_triplets_by_band.items())
     chunks = _chunk_items(band_items, chunk_size=panels_per_figure)
@@ -398,6 +400,8 @@ def plot_feature_importance_per_band(best_triplets_by_band, output_path=None, pa
             feature_names = best_triplet['feature_names']
             coefficients = np.array(best_triplet['coefficients'])
             sorted_indices = np.argsort(np.abs(coefficients))[::-1]
+            if top_n is not None and top_n > 0:
+                sorted_indices = sorted_indices[:top_n]
 
             sorted_features = [feature_names[i] for i in sorted_indices]
             sorted_coeffs = [coefficients[i] for i in sorted_indices]

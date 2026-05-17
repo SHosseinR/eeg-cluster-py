@@ -45,7 +45,7 @@ GRID_USE_PARETO_ONLY = True
 # Optimization mode
 # - 'nsga': NSGA-II with continuous stimulation duration/amplitude
 # - 'grid': exhaustive node x band evaluation using fixed SIMULATION_CONFIG values
-OPTIMIZATION_MODE = 'grid'
+OPTIMIZATION_MODE = 'nsga'
 
 # Objective mode (how objectives are computed)
 # - 'directional': maximize/minimize based on Patient vs Healthy direction
@@ -86,6 +86,6 @@ PLASTICITY_CONFIG = {
 OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = 'results-MDD/optimization-grid-allE-distance_to_gt'
+OPTIMIZATION_OUTPUT_DIR = 'results-MDD/optimization-nsga-distance_to_gt'
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
-OPTIMIZATION_FIGURES_DIR = 'results-MDD/optimization-grid-allE-distance_to_gt/optimization/figures'
+OPTIMIZATION_FIGURES_DIR = 'results-MDD/optimization-nsga-distance_to_gt/optimization/figures'

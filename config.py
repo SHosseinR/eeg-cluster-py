@@ -13,7 +13,7 @@ import numpy as np
 HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
 PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
 OUTPUT_DIR = "./results-MDD" 
-STEP_TO_START = 0
+STEP_TO_START = 7
 
 # ============================================================================
 # SIGNAL PROCESSING PARAMETERS
@@ -78,6 +78,10 @@ N_FEATURES_COMBINATION = 3  # Number of features in each combination
 N_FOLDS = 5  # Cross-validation folds
 N_TOP_FEATURES = 10  # Number of top feature sets to report
 RANDOM_STATE = 42  # For reproducibility
+CLASSIFICATION_MODE = 'all_metrics'  # 'triplet' or 'all_metrics'
+CLASSIFICATION_MODEL = 'linear_svm'  # 'linear_svm' or 'logistic' (used in all_metrics mode)
+CLASSIFICATION_C = 0.1  # Regularization strength for linear models
+CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N = 10  # Top features to show in summaries/plots
 
 # ============================================================================
 # VISUALIZATION PARAMETERS
