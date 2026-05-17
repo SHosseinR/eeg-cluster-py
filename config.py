@@ -12,8 +12,8 @@ import numpy as np
 # OUTPUT_DIR = "./results-ADHD" 
 HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
 PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
-OUTPUT_DIR = "./results-MDD" 
-STEP_TO_START = 7
+OUTPUT_DIR = "./results-MDD-2" 
+STEP_TO_START = 4
 
 # ============================================================================
 # SIGNAL PROCESSING PARAMETERS
@@ -62,7 +62,15 @@ NETWORK_MEASURES = [
     'assortativity',
     'spectral_radius',
     'small_worldness',
-    'diameter'
+    'diameter',
+    'density',
+    'mean_weight',
+    'std_weight',
+    'median_weight',
+    'max_weight',
+    'min_weight',
+    'cv_weight',
+    'char_path_length'
 ]
 
 # ============================================================================

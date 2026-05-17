@@ -22,6 +22,20 @@ OPTIMIZATION_MEASURES = [
     'small_worldness'
 ]
 
+# Run a separate optimization per band (band is fixed, not a decision variable).
+OPTIMIZATION_PER_BAND = True
+
+# Optional per-band measure lists. If a band is missing, OPTIMIZATION_MEASURES is used.
+# Example:
+OPTIMIZATION_MEASURES_BY_BAND = {
+    'delta': ['cv_weight', 'diameter', 'mean_weight'],
+    'theta': ['small_worldness', 'betweenness_centrality', 'median_weight'],
+    'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
+    'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+    'gamma': ['mean_weight', 'modularity', 'spectral_radius'],
+}
+# OPTIMIZATION_MEASURES_BY_BAND = {}
+
 # NSGA-II Algorithm parameters (using pymoo)
 NSGA_CONFIG = {
     'population_size': 100,           # Population size for NSGA-II
@@ -72,8 +86,8 @@ SIMULATION_CONFIG = {
 # STIMULATION_DURATION_BOUNDS = (1, 20)
 # STIMULATION_AMPLITUDE_BOUNDS = (0.03, 0.3)
 # STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
-STIMULATION_DURATION_BOUNDS = (1, 20)
-STIMULATION_AMPLITUDE_BOUNDS = (0.1, 2)
+STIMULATION_DURATION_BOUNDS = (1, 30)
+STIMULATION_AMPLITUDE_BOUNDS = (0.1, 3.0)
 STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
 
 # Plasticity parameters
@@ -86,6 +100,6 @@ PLASTICITY_CONFIG = {
 OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = 'results-MDD/optimization-nsga-distance_to_gt'
+OPTIMIZATION_OUTPUT_DIR = 'results-MDD-2/optimization-nsga-distance_to_gt'
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
-OPTIMIZATION_FIGURES_DIR = 'results-MDD/optimization-nsga-distance_to_gt/optimization/figures'
+OPTIMIZATION_FIGURES_DIR = 'results-MDD-2/optimization-nsga-distance_to_gt/optimization/figures'

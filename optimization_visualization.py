@@ -657,6 +657,7 @@ def create_optimization_report(optimization_results: Dict,
     objective_mode = None
     healthy_baselines = None
     stored_measures = None
+    stored_directions = None
     for _, results in optimization_results.items():
         if isinstance(results, dict):
             if objective_mode is None:
@@ -665,11 +666,16 @@ def create_optimization_report(optimization_results: Dict,
                 healthy_baselines = results.get('healthy_measure_baselines')
             if stored_measures is None:
                 stored_measures = results.get('optimization_measures')
+            if stored_directions is None:
+                stored_directions = results.get('optimization_directions')
         if objective_mode or healthy_baselines or stored_measures:
             break
 
     if stored_measures:
         optimization_measures = list(stored_measures)
+
+    if not optimization_directions and stored_directions:
+        optimization_directions = dict(stored_directions)
 
     def _distance_to_gt(values):
         if healthy_baselines is None:

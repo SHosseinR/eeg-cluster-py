@@ -5,6 +5,7 @@ import os
 import sys
 import numpy as np
 from datetime import datetime
+from typing import List
 
 # Import configuration
 from config import (
@@ -13,7 +14,8 @@ from config import (
 from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
     OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS,
-    OPTIMIZATION_TOP_K, OPTIMIZATION_MODE
+    OPTIMIZATION_TOP_K, OPTIMIZATION_MODE,
+    OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND
 )
 
 # Import optimization modules
@@ -113,6 +115,12 @@ def load_data_for_optimization():
     return connectivity_matrices, network_measures, subject_data, channel_names
 
 
+def _get_measures_for_band(band_name: str) -> List[str]:
+    if OPTIMIZATION_MEASURES_BY_BAND:
+        return OPTIMIZATION_MEASURES_BY_BAND.get(band_name, OPTIMIZATION_MEASURES)
+    return OPTIMIZATION_MEASURES
+
+
 def verify_optimization_requirements(connectivity_matrices, network_measures):
     """Verify that required data exists for optimization."""
     print("\n" + "="*80)
@@ -137,7 +145,13 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
     print(f"Number of healthy subjects: {len(healthy_subjects)}")
     
     # Verify measures exist
-    print(f"\nOptimization measures: {OPTIMIZATION_MEASURES}")
+    if OPTIMIZATION_PER_BAND:
+        print("\nOptimization measures by band:")
+        for band_name in FREQUENCY_BANDS.keys():
+            measures = _get_measures_for_band(band_name)
+            print(f"  - {band_name}: {measures}")
+    else:
+        print(f"\nOptimization measures: {OPTIMIZATION_MEASURES}")
     
     # Check at least one subject has required measures
     sample_subject = patient_subjects[0]
@@ -149,13 +163,25 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
     if sample_band not in network_measures['Patient'][sample_subject][SELECTED_METHOD]:
         raise ValueError(f"Band {sample_band} not found in network measures!")
     
-    available_measures = list(network_measures['Patient'][sample_subject][SELECTED_METHOD][sample_band].keys())
-    print(f"\nAvailable measures in data: {available_measures}")
-    
+    sample_available = list(network_measures['Patient'][sample_subject][SELECTED_METHOD][sample_band].keys())
+    print(f"\nAvailable measures in data: {sample_available}")
+
     # Check that optimization measures exist
-    for measure in OPTIMIZATION_MEASURES:
-        if measure not in available_measures:
-            raise ValueError(f"Optimization measure '{measure}' not found in data!")
+    if OPTIMIZATION_PER_BAND:
+        for band_name in FREQUENCY_BANDS.keys():
+            available_measures = list(
+                network_measures['Patient'][sample_subject][SELECTED_METHOD][band_name].keys()
+            )
+            measures = _get_measures_for_band(band_name)
+            for measure in measures:
+                if measure not in available_measures:
+                    raise ValueError(
+                        f"Optimization measure '{measure}' not found in data for band '{band_name}'!"
+                    )
+    else:
+        for measure in OPTIMIZATION_MEASURES:
+            if measure not in sample_available:
+                raise ValueError(f"Optimization measure '{measure}' not found in data!")
     
     print("\n✓ All requirements verified!")
 
@@ -190,91 +216,191 @@ def main():
         print(f"\nERROR in verification: {str(e)}")
         return
     
-    # Create optimizer
-    print("\n" + "="*80)
-    print("CREATING OPTIMIZER")
-    print("="*80)
-    
-    optimizer = create_optimizer_from_config(
-        connectivity_matrices=connectivity_matrices,
-        network_measures=network_measures,
-        subject_data=subject_data,
-        frequency_bands=FREQUENCY_BANDS,
-        channel_names=channel_names,
-        selected_method=SELECTED_METHOD
-    )
-    
-    print(f"\n✓ Optimizer created successfully")
-    print(f"  - Connectivity method: {SELECTED_METHOD}")
-    print(f"  - Optimization measures: {', '.join(OPTIMIZATION_MEASURES)}")
-    print(f"  - Number of nodes: {optimizer.n_nodes}")
-    print(f"  - Number of bands: {optimizer.n_bands}")
-    
-    # Run optimization for all patients
-    print("\n" + "="*80)
-    print("RUNNING OPTIMIZATION")
-    print("="*80)
-    effective_workers = (os.cpu_count()-1 or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
-    print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
-    
-    try:
-        optimization_results = optimizer.optimize_all_patients(
-            verbose=True,
-            n_jobs=OPTIMIZATION_N_JOBS
-        )
-    except Exception as e:
-        print(f"\nERROR during optimization: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return
-    
-    # Save results
-    print("\n" + "="*80)
-    print("SAVING RESULTS")
-    print("="*80)
-    
-    results_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, OPTIMIZATION_RESULTS_FILE)
-    optimizer.save_results(results_path)
-    
-    # Create visualizations
-    print("\n" + "="*80)
-    print("GENERATING VISUALIZATIONS")
-    print("="*80)
-    
-    try:
-        plot_optimization_summary(
-            optimization_results=optimization_results,
-            channel_names=channel_names,
-            band_names=list(FREQUENCY_BANDS.keys()),
-            optimization_measures=OPTIMIZATION_MEASURES,
-            output_dir=OPTIMIZATION_FIGURES_DIR,
-            top_k=OPTIMIZATION_TOP_K
-        )
-    except Exception as e:
-        print(f"\nERROR creating visualizations: {str(e)}")
-        import traceback
-        traceback.print_exc()
-    
-    # Create text report
-    print("\n" + "="*80)
-    print("GENERATING REPORT")
-    print("="*80)
-    
-    try:
+    if OPTIMIZATION_PER_BAND:
+        results_by_band = {}
+        combined_results = {}
+        optimization_directions = {}
+
+        print("\n" + "="*80)
+        print("CREATING PER-BAND OPTIMIZERS")
+        print("="*80)
+
+        effective_workers = (os.cpu_count() - 1 or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
+        print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
+
+        for band_idx, band_name in enumerate(FREQUENCY_BANDS.keys()):
+            band_measures = _get_measures_for_band(band_name)
+            print("\n" + "-"*80)
+            print(f"Band: {band_name}")
+            print(f"Measures: {band_measures}")
+            print("-"*80)
+
+            optimizer = create_optimizer_from_config(
+                connectivity_matrices=connectivity_matrices,
+                network_measures=network_measures,
+                subject_data=subject_data,
+                frequency_bands=FREQUENCY_BANDS,
+                channel_names=channel_names,
+                selected_method=SELECTED_METHOD,
+                optimization_measures=band_measures,
+                fixed_band_name=band_name
+            )
+
+            try:
+                optimization_results = optimizer.optimize_all_patients(
+                    verbose=True,
+                    n_jobs=OPTIMIZATION_N_JOBS
+                )
+            except Exception as e:
+                print(f"\nERROR during optimization for band {band_name}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return
+
+            results_by_band[band_name] = optimization_results
+            optimization_directions[band_name] = optimizer.optimization_directions
+
+            for subject_id, result in optimization_results.items():
+                combined_key = f"{subject_id}::{band_name}"
+                combined_results[combined_key] = result
+
+            band_results_path = os.path.join(
+                OPTIMIZATION_OUTPUT_DIR,
+                f"{band_name}_{OPTIMIZATION_RESULTS_FILE}"
+            )
+            optimizer.save_results(band_results_path)
+
+        print("\n" + "="*80)
+        print("SAVING COMBINED RESULTS")
+        print("="*80)
+        results_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, OPTIMIZATION_RESULTS_FILE)
+        np.save(results_path, combined_results, allow_pickle=True)
+
+        plot_measures = _get_measures_for_band(next(iter(FREQUENCY_BANDS.keys())))
+
+        print("\n" + "="*80)
+        print("GENERATING VISUALIZATIONS")
+        print("="*80)
+
+        try:
+            plot_optimization_summary(
+                optimization_results=combined_results,
+                channel_names=channel_names,
+                band_names=list(FREQUENCY_BANDS.keys()),
+                optimization_measures=plot_measures,
+                output_dir=OPTIMIZATION_FIGURES_DIR,
+                top_k=OPTIMIZATION_TOP_K
+            )
+        except Exception as e:
+            print(f"\nERROR creating visualizations: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+        print("\n" + "="*80)
+        print("GENERATING REPORT")
+        print("="*80)
+
         report_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization_report.txt')
-        create_optimization_report(
-            optimization_results=optimization_results,
+        try:
+            create_optimization_report(
+                optimization_results=combined_results,
+                channel_names=channel_names,
+                band_names=list(FREQUENCY_BANDS.keys()),
+                optimization_measures=plot_measures,
+                optimization_directions={},
+                output_path=report_path,
+                top_k=OPTIMIZATION_TOP_K
+            )
+        except Exception as e:
+            print(f"\nERROR creating report: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    else:
+        # Create optimizer
+        print("\n" + "="*80)
+        print("CREATING OPTIMIZER")
+        print("="*80)
+
+        optimizer = create_optimizer_from_config(
+            connectivity_matrices=connectivity_matrices,
+            network_measures=network_measures,
+            subject_data=subject_data,
+            frequency_bands=FREQUENCY_BANDS,
             channel_names=channel_names,
-            band_names=list(FREQUENCY_BANDS.keys()),
-            optimization_measures=OPTIMIZATION_MEASURES,
-            optimization_directions=optimizer.optimization_directions,
-            output_path=report_path,
-            top_k=OPTIMIZATION_TOP_K
+            selected_method=SELECTED_METHOD
         )
-    except Exception as e:
-        print(f"\nERROR creating report: {str(e)}")
-        import traceback
-        traceback.print_exc()
+
+        print(f"\n✓ Optimizer created successfully")
+        print(f"  - Connectivity method: {SELECTED_METHOD}")
+        print(f"  - Optimization measures: {', '.join(OPTIMIZATION_MEASURES)}")
+        print(f"  - Number of nodes: {optimizer.n_nodes}")
+        print(f"  - Number of bands: {optimizer.n_bands}")
+
+        # Run optimization for all patients
+        print("\n" + "="*80)
+        print("RUNNING OPTIMIZATION")
+        print("="*80)
+        effective_workers = (os.cpu_count()-1 or 1) if OPTIMIZATION_N_JOBS is None else max(1, int(OPTIMIZATION_N_JOBS))
+        print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
+
+        try:
+            optimization_results = optimizer.optimize_all_patients(
+                verbose=True,
+                n_jobs=OPTIMIZATION_N_JOBS
+            )
+        except Exception as e:
+            print(f"\nERROR during optimization: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        # Save results
+        print("\n" + "="*80)
+        print("SAVING RESULTS")
+        print("="*80)
+
+        results_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, OPTIMIZATION_RESULTS_FILE)
+        optimizer.save_results(results_path)
+
+        # Create visualizations
+        print("\n" + "="*80)
+        print("GENERATING VISUALIZATIONS")
+        print("="*80)
+
+        try:
+            plot_optimization_summary(
+                optimization_results=optimization_results,
+                channel_names=channel_names,
+                band_names=list(FREQUENCY_BANDS.keys()),
+                optimization_measures=OPTIMIZATION_MEASURES,
+                output_dir=OPTIMIZATION_FIGURES_DIR,
+                top_k=OPTIMIZATION_TOP_K
+            )
+        except Exception as e:
+            print(f"\nERROR creating visualizations: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+        # Create text report
+        print("\n" + "="*80)
+        print("GENERATING REPORT")
+        print("="*80)
+
+        report_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization_report.txt')
+        try:
+            create_optimization_report(
+                optimization_results=optimization_results,
+                channel_names=channel_names,
+                band_names=list(FREQUENCY_BANDS.keys()),
+                optimization_measures=OPTIMIZATION_MEASURES,
+                optimization_directions=optimizer.optimization_directions,
+                output_path=report_path,
+                top_k=OPTIMIZATION_TOP_K
+            )
+        except Exception as e:
+            print(f"\nERROR creating report: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     # Summary
     print("\n" + "="*80)
@@ -283,6 +409,8 @@ def main():
     print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"\nResults saved to:")
     print(f"  - Optimization results: {results_path}")
+    if OPTIMIZATION_PER_BAND:
+        print(f"  - Per-band results: {OPTIMIZATION_OUTPUT_DIR}/*_{OPTIMIZATION_RESULTS_FILE}")
     print(f"  - Figures: {OPTIMIZATION_FIGURES_DIR}")
     print(f"  - Report: {report_path}")
     print("="*80 + "\n")

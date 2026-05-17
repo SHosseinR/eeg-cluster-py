@@ -20,7 +20,7 @@ class EEGOptimizationProblem(Problem):
     
     Decision variables:
     - x[0]: Stimulation node (integer, 0 to n_nodes-1)
-    - x[1]: Frequency band (integer, 0 to n_bands-1)
+    - x[1]: Frequency band (integer, 0 to n_bands-1) [omitted if fixed_band_index is set]
     - x[2]: Stimulation duration (float)
     - x[3]: Stimulation amplitude (float)
     - x[4]: Leak (float)
@@ -36,7 +36,8 @@ class EEGOptimizationProblem(Problem):
                  duration_bounds: tuple = (0.0, 2.0),
                  amplitude_bounds: tuple = (0.0, 2.0),
                  leak_bounds: tuple = (0.0, 2.0),
-                 n_objectives: int = 3):
+                 n_objectives: int = 3,
+                 fixed_band_index: int = None):
         """
         Initialize EEG optimization problem.
         
@@ -52,6 +53,7 @@ class EEGOptimizationProblem(Problem):
             Number of objectives to optimize (default: 3)
         """
         self.evaluate_func = evaluate_func
+        self.fixed_band_index = fixed_band_index
         self._accepts_continuous = self._check_accepts_continuous(evaluate_func)
         self._accepts_leak = self._check_accepts_leak(evaluate_func)
         
@@ -59,20 +61,35 @@ class EEGOptimizationProblem(Problem):
         amplitude_min, amplitude_max = amplitude_bounds
         leak_min, leak_max = leak_bounds
 
-        # Define problem
-        super().__init__(
-            n_var=5,  # node, band, stimulation_duration, stimulation_amplitude, leak
-            n_obj=n_objectives,  # Number of objectives
-            n_constr=0,  # No constraints
-            xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
-            xu=np.array([
-                float(n_nodes - 1),
-                float(n_bands - 1),
-                float(duration_max),
-                float(amplitude_max),
-                float(leak_max)
-            ])
-        )
+        if fixed_band_index is None:
+            # Define problem with band as a decision variable
+            super().__init__(
+                n_var=5,  # node, band, stimulation_duration, stimulation_amplitude, leak
+                n_obj=n_objectives,  # Number of objectives
+                n_constr=0,  # No constraints
+                xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
+                xu=np.array([
+                    float(n_nodes - 1),
+                    float(n_bands - 1),
+                    float(duration_max),
+                    float(amplitude_max),
+                    float(leak_max)
+                ])
+            )
+        else:
+            # Band is fixed; remove band from decision variables
+            super().__init__(
+                n_var=4,  # node, stimulation_duration, stimulation_amplitude, leak
+                n_obj=n_objectives,
+                n_constr=0,
+                xl=np.array([0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
+                xu=np.array([
+                    float(n_nodes - 1),
+                    float(duration_max),
+                    float(amplitude_max),
+                    float(leak_max)
+                ])
+            )
     
     def _check_accepts_continuous(self, func: Callable) -> bool:
         try:
@@ -121,10 +138,16 @@ class EEGOptimizationProblem(Problem):
         objectives = []
         for x in X:
             node = int(np.clip(np.round(x[0]), 0, self.xu[0]))
-            band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
-            duration = float(x[2])
-            amplitude = float(x[3])
-            leak = float(x[4])
+            if self.fixed_band_index is None:
+                band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
+                duration = float(x[2])
+                amplitude = float(x[3])
+                leak = float(x[4])
+            else:
+                band = int(self.fixed_band_index)
+                duration = float(x[1])
+                amplitude = float(x[2])
+                leak = float(x[3])
             if self._accepts_leak:
                 obj = self.evaluate_func(node, band, duration, amplitude, leak)
             elif self._accepts_continuous:
@@ -160,7 +183,8 @@ class NSGAIIOptimizer:
                  mutation_prob: float = None,
                  mutation_eta: float = 20.0,
                  seed: int = None,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 fixed_band_index: int = None):
         """
         Initialize NSGA-II optimizer using pymoo.
         
@@ -207,6 +231,7 @@ class NSGAIIOptimizer:
         self.n_generations = n_generations
         self.seed = seed
         self.verbose = verbose
+        self.fixed_band_index = fixed_band_index
         
         # Create problem
         self.problem = EEGOptimizationProblem(
@@ -216,7 +241,8 @@ class NSGAIIOptimizer:
             duration_bounds=duration_bounds,
             amplitude_bounds=amplitude_bounds,
             leak_bounds=leak_bounds,
-            n_objectives=self.n_objectives
+            n_objectives=self.n_objectives,
+            fixed_band_index=fixed_band_index
         )
         
         # Set default mutation probability if not specified
@@ -252,14 +278,21 @@ class NSGAIIOptimizer:
         solutions = []
         for x, f in zip(X, F):
             node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
-            band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
-            duration = float(x[2])
-            amplitude = float(x[3])
-            leak = float(x[4])
+            if self.fixed_band_index is None:
+                band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
+                duration = float(x[2])
+                amplitude = float(x[3])
+                leak = float(x[4])
+            else:
+                band = int(self.fixed_band_index)
+                duration = float(x[1])
+                amplitude = float(x[2])
+                leak = float(x[3])
+            band_name = self.band_names[band] if band < len(self.band_names) else None
             solutions.append({
                 'node': node,
                 'band': band,
-                'band_name': self.band_names[band],
+                'band_name': band_name,
                 'stimulation_duration': duration,
                 'stimulation_amplitude': amplitude,
                 'leak': leak,

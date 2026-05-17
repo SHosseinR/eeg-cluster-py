@@ -49,6 +49,7 @@ class EEGOptimizer:
                  channel_names: List[str],
                  selected_method: str,
                  optimization_measures: List[str],
+                 fixed_band_name: Optional[str] = None,
                  optimization_mode: str = None,
                  objective_mode: str = None,
                  nsga_config: Dict = None,
@@ -73,6 +74,8 @@ class EEGOptimizer:
             Connectivity method to use (e.g., 'plv', 'pdc', 'gc', 'psi')
         optimization_measures : list of str
             Names of network measures to optimize
+        fixed_band_name : str, optional
+            If provided, restrict optimization to this band (band is fixed)
         optimization_mode : str
             Optimization mode: 'nsga' (continuous) or 'grid' (discrete)
         objective_mode : str
@@ -115,8 +118,18 @@ class EEGOptimizer:
         
         # Derived parameters
         self.n_nodes = len(channel_names)
-        self.n_bands = len(frequency_bands)
         self.band_names = list(frequency_bands.keys())
+        self.fixed_band_name = fixed_band_name
+        self.fixed_band_index = None
+        if fixed_band_name is not None:
+            if fixed_band_name not in self.band_names:
+                raise ValueError(
+                    f"fixed_band_name '{fixed_band_name}' not found in frequency_bands"
+                )
+            self.fixed_band_index = self.band_names.index(fixed_band_name)
+            self.n_bands = 1
+        else:
+            self.n_bands = len(self.band_names)
         
         # Determine optimization directions (minimize or maximize)
         self.optimization_directions = self._determine_optimization_directions()
@@ -141,10 +154,12 @@ class EEGOptimizer:
         baselines = {}
         eps = 1e-10
 
+        bands = [self.fixed_band_name] if self.fixed_band_name is not None else self.band_names
+
         for measure in self.optimization_measures:
             healthy_values = []
             for subject_id in self.network_measures['Healthy'].keys():
-                for band in self.band_names:
+                for band in bands:
                     if self.selected_method in self.network_measures['Healthy'][subject_id]:
                         if band in self.network_measures['Healthy'][subject_id][self.selected_method]:
                             if measure in self.network_measures['Healthy'][subject_id][self.selected_method][band]:
@@ -177,6 +192,8 @@ class EEGOptimizer:
         """
         directions = {}
         
+        bands = [self.fixed_band_name] if self.fixed_band_name is not None else self.band_names
+
         for measure in self.optimization_measures:
             # Compute average measure values for each group
             patient_values = []
@@ -184,7 +201,7 @@ class EEGOptimizer:
             
             # Collect all values across bands for this measure
             for subject_id in self.network_measures['Patient'].keys():
-                for band in self.band_names:
+                for band in bands:
                     if self.selected_method in self.network_measures['Patient'][subject_id]:
                         if band in self.network_measures['Patient'][subject_id][self.selected_method]:
                             if measure in self.network_measures['Patient'][subject_id][self.selected_method][band]:
@@ -192,7 +209,7 @@ class EEGOptimizer:
                                 patient_values.append(val)
             
             for subject_id in self.network_measures['Healthy'].keys():
-                for band in self.band_names:
+                for band in bands:
                     if self.selected_method in self.network_measures['Healthy'][subject_id]:
                         if band in self.network_measures['Healthy'][subject_id][self.selected_method]:
                             if measure in self.network_measures['Healthy'][subject_id][self.selected_method][band]:
@@ -271,6 +288,8 @@ class EEGOptimizer:
             stimulation_amplitude: float = None,
             stimulation_leak: float = None
         ) -> np.ndarray:
+            if self.fixed_band_index is not None:
+                band_idx = self.fixed_band_index
             objectives, _ = self._evaluate_solution_details(
                 subject_id=subject_id,
                 baseline_activation=baseline_activation,
@@ -289,6 +308,8 @@ class EEGOptimizer:
             stimulation_amplitude: float = None,
             stimulation_leak: float = None
         ) -> Tuple[np.ndarray, np.ndarray]:
+            if self.fixed_band_index is not None:
+                band_idx = self.fixed_band_index
             return self._evaluate_solution_details(
                 subject_id=subject_id,
                 baseline_activation=baseline_activation,
@@ -464,10 +485,15 @@ class EEGOptimizer:
         for node in range(self.n_nodes):
             for band_idx in range(self.n_bands):
                 objectives, measure_values = evaluate_func(node, band_idx)
+                global_band_idx = (
+                    self.fixed_band_index
+                    if self.fixed_band_index is not None
+                    else band_idx
+                )
                 solutions.append({
                     'node': node,
-                    'band': band_idx,
-                    'band_name': self.band_names[band_idx],
+                    'band': global_band_idx,
+                    'band_name': self.band_names[global_band_idx],
                     'stimulation_duration': None,
                     'stimulation_amplitude': None,
                     'leak': leak,
@@ -600,6 +626,7 @@ class EEGOptimizer:
                 crossover_prob=self.nsga_config['crossover_prob'],
                 mutation_prob=self.nsga_config['mutation_prob'],
                 # tournament_size=self.nsga_config['tournament_size']
+                fixed_band_index=self.fixed_band_index
             )
             
             # Run optimization
@@ -654,6 +681,8 @@ class EEGOptimizer:
             'optimization_measures': list(self.optimization_measures),
             'optimization_directions': dict(self.optimization_directions),
             'healthy_measure_baselines': dict(self.healthy_measure_baselines),
+            'fixed_band_name': self.fixed_band_name,
+            'fixed_band_index': self.fixed_band_index,
             'initial_metrics': initial_metrics.tolist() if initial_metrics is not None else None,
             'final_metrics': final_metrics.tolist() if final_metrics is not None else None
         }
@@ -697,7 +726,7 @@ class EEGOptimizer:
 
         total_subjects = len(patient_subjects)
         requested_workers = n_jobs
-        max_workers = (os.cpu_count() or 1) if requested_workers is None else max(1, int(requested_workers))
+        max_workers = (os.cpu_count()-1 or 1) if requested_workers is None else max(1, int(requested_workers))
         max_workers = min(max_workers, total_subjects) if total_subjects > 0 else 1
 
         all_results = {}
@@ -763,7 +792,9 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
                                 subject_data: Dict,
                                 frequency_bands: Dict,
                                 channel_names: List[str],
-                                selected_method: str) -> EEGOptimizer:
+                                selected_method: str,
+                                optimization_measures: Optional[List[str]] = None,
+                                fixed_band_name: Optional[str] = None) -> EEGOptimizer:
     """
     Create EEGOptimizer instance from configuration files.
     
@@ -794,7 +825,8 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         frequency_bands=frequency_bands,
         channel_names=channel_names,
         selected_method=selected_method,
-        optimization_measures=OPTIMIZATION_MEASURES,
+        optimization_measures=optimization_measures or OPTIMIZATION_MEASURES,
+        fixed_band_name=fixed_band_name,
         optimization_mode=OPTIMIZATION_MODE,
         objective_mode=OPTIMIZATION_OBJECTIVE_MODE,
         nsga_config=NSGA_CONFIG,

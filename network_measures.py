@@ -29,6 +29,16 @@ def _to_length_matrix(weight_matrix):
     return L
 
 
+def _edge_weight_values(adjacency_matrix):
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    n_nodes = W.shape[0]
+    if n_nodes <= 1:
+        return np.array([], dtype=float)
+    mask = ~np.eye(n_nodes, dtype=bool)
+    values = W[mask]
+    return np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+
+
 def _global_efficiency_from_distance(distance_matrix):
     """
     Compute global efficiency from a shortest-path distance matrix.
@@ -382,6 +392,60 @@ def compute_diameter(adjacency_matrix):
         return np.nan
 
 
+def compute_density(adjacency_matrix):
+    """
+    Compute density as proportion of non-zero off-diagonal weights.
+    """
+    values = _edge_weight_values(adjacency_matrix)
+    if values.size == 0:
+        return np.nan
+    return float(np.sum(values > 0)) / float(values.size)
+
+
+def compute_mean_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    return float(np.mean(values)) if values.size else np.nan
+
+
+def compute_std_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    return float(np.std(values)) if values.size else np.nan
+
+
+def compute_median_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    return float(np.median(values)) if values.size else np.nan
+
+
+def compute_max_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    return float(np.max(values)) if values.size else np.nan
+
+
+def compute_min_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    return float(np.min(values)) if values.size else np.nan
+
+
+def compute_cv_weight(adjacency_matrix):
+    values = _edge_weight_values(adjacency_matrix)
+    if values.size == 0:
+        return np.nan
+    mean_val = float(np.mean(values))
+    std_val = float(np.std(values))
+    return float(std_val / mean_val) if mean_val > 0 else np.nan
+
+
+def compute_char_path_length(adjacency_matrix):
+    W = _prepare_weighted_directed_matrix(adjacency_matrix)
+    length_matrix = _to_length_matrix(W)
+    D = bct.distance_wei(length_matrix)[0]
+    finite_distances = D[np.isfinite(D) & (D > 0)]
+    if finite_distances.size == 0:
+        return np.nan
+    return float(np.mean(finite_distances))
+
+
 measure_functions = {
     'global_efficiency': compute_global_efficiency,
     'local_efficiency': compute_local_efficiency,
@@ -394,7 +458,15 @@ measure_functions = {
     'assortativity': compute_assortativity,
     'spectral_radius': compute_spectral_radius,
     'small_worldness': compute_small_worldness,
-    'diameter': compute_diameter
+    'diameter': compute_diameter,
+    'density': compute_density,
+    'mean_weight': compute_mean_weight,
+    'std_weight': compute_std_weight,
+    'median_weight': compute_median_weight,
+    'max_weight': compute_max_weight,
+    'min_weight': compute_min_weight,
+    'cv_weight': compute_cv_weight,
+    'char_path_length': compute_char_path_length
 }
 
 

@@ -140,7 +140,7 @@ def main():
 
         total_tasks = len(connectivity_tasks)
         requested_workers = CONNECTIVITY_N_JOBS
-        max_workers = (os.cpu_count() or 1) if requested_workers is None else max(1, int(requested_workers))
+        max_workers = (os.cpu_count()-1 or 1) if requested_workers is None else max(1, int(requested_workers))
         max_workers = min(max_workers, total_tasks) if total_tasks > 0 else 1
 
         if max_workers <= 1 or total_tasks <= 1:
