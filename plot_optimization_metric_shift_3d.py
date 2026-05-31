@@ -23,9 +23,68 @@ def _load_pickle_dict(path: str) -> Dict:
     return np.load(path, allow_pickle=True).item()
 
 
-def _find_metadata(optimization_results: Dict) -> Optional[Dict]:
+def _get_result_band_info(results: Dict) -> Tuple[Optional[int], Optional[str]]:
+    band_idx = None
+    band_name = None
+
+    if results.get("fixed_band_index") is not None:
+        try:
+            band_idx = int(results["fixed_band_index"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if results.get("fixed_band_name"):
+        band_name = str(results["fixed_band_name"])
+
+    best_solution = results.get("best_solution") or {}
+    if band_idx is None and "band" in best_solution:
+        try:
+            band_idx = int(best_solution["band"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if band_name is None and band_idx is not None:
+        band_names = results.get("band_names")
+        if band_names and 0 <= band_idx < len(band_names):
+            band_name = band_names[band_idx]
+
+    return band_idx, band_name
+
+
+def _parse_band_selector(band_selector: Optional[str]) -> Tuple[Optional[int], Optional[str]]:
+    if band_selector is None:
+        return None, None
+    try:
+        return int(band_selector), None
+    except (TypeError, ValueError):
+        return None, str(band_selector)
+
+
+def _matches_band_filter(
+    results: Dict,
+    band_idx_filter: Optional[int],
+    band_name_filter: Optional[str],
+) -> bool:
+    if band_idx_filter is None and band_name_filter is None:
+        return True
+
+    band_idx, band_name = _get_result_band_info(results)
+    if band_idx_filter is not None:
+        return band_idx is not None and band_idx == band_idx_filter
+    if band_name_filter is not None:
+        return band_name is not None and band_name == band_name_filter
+    return True
+
+
+def _find_metadata(
+    optimization_results: Dict,
+    band_idx_filter: Optional[int],
+    band_name_filter: Optional[str],
+) -> Optional[Dict]:
     for _, results in optimization_results.items():
         if not isinstance(results, dict):
+            continue
+        if not _matches_band_filter(results, band_idx_filter, band_name_filter):
             continue
         if results.get("healthy_measure_baselines") and results.get("optimization_measures"):
             return results
@@ -34,7 +93,9 @@ def _find_metadata(optimization_results: Dict) -> Optional[Dict]:
 
 def _extract_points(
     optimization_results: Dict,
-    measures: List[str]
+    measures: List[str],
+    band_idx_filter: Optional[int],
+    band_name_filter: Optional[str],
 ) -> Tuple[np.ndarray, np.ndarray, List[Tuple[str, str]]]:
     initial_points = []
     final_points = []
@@ -43,31 +104,38 @@ def _extract_points(
     for subject_id, results in optimization_results.items():
         if not isinstance(results, dict):
             continue
+        if not _matches_band_filter(results, band_idx_filter, band_name_filter):
+            continue
+
+        band_idx, band_name = _get_result_band_info(results)
+        subject_label = results.get("subject_id", subject_id)
+        if band_name:
+            subject_label = f"{subject_label}::{band_name}"
 
         initial_metrics = results.get("initial_metrics")
         final_metrics = results.get("final_metrics")
 
         if initial_metrics is None:
-            skipped.append((subject_id, "missing initial_metrics"))
+            skipped.append((subject_label, "missing initial_metrics"))
             continue
         if final_metrics is None:
-            skipped.append((subject_id, "missing final_metrics"))
+            skipped.append((subject_label, "missing final_metrics"))
             continue
 
         initial_vals = np.array(initial_metrics, dtype=float)
         final_vals = np.array(final_metrics, dtype=float)
 
         if initial_vals.size != len(measures):
-            skipped.append((subject_id, "initial_metrics size mismatch"))
+            skipped.append((subject_label, "initial_metrics size mismatch"))
             continue
         if final_vals.size != len(measures):
-            skipped.append((subject_id, "final_metrics size mismatch"))
+            skipped.append((subject_label, "final_metrics size mismatch"))
             continue
         if not np.all(np.isfinite(initial_vals)):
-            skipped.append((subject_id, "initial_metrics not finite"))
+            skipped.append((subject_label, "initial_metrics not finite"))
             continue
         if not np.all(np.isfinite(final_vals)):
-            skipped.append((subject_id, "final_metrics not finite"))
+            skipped.append((subject_label, "final_metrics not finite"))
             continue
 
         initial_points.append(initial_vals)
@@ -98,6 +166,11 @@ def main() -> None:
         default=None,
         help="Optional output HTML path for the interactive figure",
     )
+    parser.add_argument(
+        "--band",
+        default=None,
+        help="Optional band name or index to select from combined results",
+    )
     args = parser.parse_args()
 
     results_path = (
@@ -110,10 +183,11 @@ def main() -> None:
 
     optimization_results = _load_pickle_dict(results_path)
 
-    metadata = _find_metadata(optimization_results)
+    band_idx_filter, band_name_filter = _parse_band_selector(args.band)
+    metadata = _find_metadata(optimization_results, band_idx_filter, band_name_filter)
     if metadata is None:
         raise RuntimeError(
-            "Results file is missing optimization metadata. "
+            "Results file is missing optimization metadata or no matching band was found. "
             "Re-run optimization with the updated pipeline to store baselines."
         )
 
@@ -127,7 +201,12 @@ def main() -> None:
     baselines = metadata["healthy_measure_baselines"]
     gt_point = np.array([baselines[m] for m in measures], dtype=float)
 
-    initial_points, final_points, skipped = _extract_points(optimization_results, measures)
+    initial_points, final_points, skipped = _extract_points(
+        optimization_results,
+        measures,
+        band_idx_filter,
+        band_name_filter,
+    )
     if initial_points.size == 0:
         raise RuntimeError(
             "No subjects with valid initial/final metrics. "
@@ -182,20 +261,35 @@ def main() -> None:
     ax.set_title("Metric Shift: Initial -> Final vs Healthy Mean")
     ax.legend(loc="best")
 
+    band_tag = None
+    band_idx, band_name = _get_result_band_info(metadata)
+    if band_name:
+        band_tag = band_name
+    elif band_idx is not None:
+        band_tag = f"band{band_idx}"
+
+    default_png = "metric_shift_3d.png"
+    if band_tag:
+        default_png = f"metric_shift_3d_{band_tag}.png"
+
     output_path = (
         args.output
         if args.output is not None
-        else os.path.join(OPTIMIZATION_FIGURES_DIR, "metric_shift_3d.png")
+        else os.path.join(OPTIMIZATION_FIGURES_DIR, default_png)
     )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Saved 3D metric shift plot to: {output_path}")
 
+    default_html = "metric_shift_3d.html"
+    if band_tag:
+        default_html = f"metric_shift_3d_{band_tag}.html"
+
     html_output = (
         args.html_output
         if args.html_output is not None
-        else os.path.join(OPTIMIZATION_FIGURES_DIR, "metric_shift_3d.html")
+        else os.path.join(OPTIMIZATION_FIGURES_DIR, default_html)
     )
 
     line_x = []

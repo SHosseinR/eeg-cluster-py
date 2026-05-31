@@ -6,7 +6,7 @@ optimization.
 """
 import argparse
 import os
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,6 +28,79 @@ def _load_pickle_dict(path: str) -> Dict:
     return np.load(path, allow_pickle=True).item()
 
 
+def _get_result_band_info(results: Dict) -> Tuple[Optional[int], Optional[str]]:
+    band_idx = None
+    band_name = None
+
+    if results.get("fixed_band_index") is not None:
+        try:
+            band_idx = int(results["fixed_band_index"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if results.get("fixed_band_name"):
+        band_name = str(results["fixed_band_name"])
+
+    best_solution = results.get("best_solution") or {}
+    if band_idx is None and "band" in best_solution:
+        try:
+            band_idx = int(best_solution["band"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if band_name is None and band_idx is not None:
+        band_names = results.get("band_names")
+        if band_names and 0 <= band_idx < len(band_names):
+            band_name = band_names[band_idx]
+
+    return band_idx, band_name
+
+
+def _parse_band_selector(band_selector: Optional[str]) -> Tuple[Optional[int], Optional[str]]:
+    if band_selector is None:
+        return None, None
+    try:
+        return int(band_selector), None
+    except (TypeError, ValueError):
+        return None, str(band_selector)
+
+
+def _select_result_key(optimization_results: Dict, subject_id: str, band_selector: Optional[str]) -> str:
+    if subject_id in optimization_results:
+        return subject_id
+
+    band_idx_filter, band_name_filter = _parse_band_selector(band_selector)
+
+    candidates = []
+    for key, results in optimization_results.items():
+        if not isinstance(results, dict):
+            continue
+
+        stored_subject = results.get("subject_id")
+        if stored_subject != subject_id and not str(key).startswith(f"{subject_id}::"):
+            continue
+
+        band_idx, band_name = _get_result_band_info(results)
+        if band_idx_filter is not None and band_idx != band_idx_filter:
+            continue
+        if band_name_filter is not None and band_name != band_name_filter:
+            continue
+
+        candidates.append((key, band_name))
+
+    if not candidates:
+        raise KeyError(f"Subject not found in results: {subject_id}")
+
+    if len(candidates) > 1:
+        available_bands = sorted({name for _, name in candidates if name})
+        hint = " Use --band to select a specific band."
+        if available_bands:
+            hint = f" Use --band to select a specific band. Available: {', '.join(available_bands)}"
+        raise ValueError(f"Multiple results found for subject '{subject_id}'.{hint}")
+
+    return candidates[0][0]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Plot activation change and adjacency before/after for one subject."
@@ -41,6 +114,11 @@ def main() -> None:
         "--results",
         default=None,
         help="Optional override path to optimization_results.npy",
+    )
+    parser.add_argument(
+        "--band",
+        default=None,
+        help="Optional band name or index when results contain multiple bands.",
     )
     parser.add_argument(
         "--output-dir",
@@ -64,10 +142,9 @@ def main() -> None:
 
     optimization_results = _load_pickle_dict(results_path)
     subject_id = args.subject
-    if subject_id not in optimization_results:
-        raise KeyError(f"Subject not found in results: {subject_id}")
-
-    results = optimization_results[subject_id]
+    result_key = _select_result_key(optimization_results, subject_id, args.band)
+    results = optimization_results[result_key]
+    subject_id = results.get("subject_id", subject_id)
     best_solution = results.get("best_solution")
     if best_solution is None:
         raise RuntimeError(f"No best_solution for subject: {subject_id}")
@@ -156,7 +233,8 @@ def main() -> None:
     if not args.no_legend and delta.shape[0] <= 25:
         ax.legend(loc="upper right", fontsize=8, ncol=2)
 
-    activation_path = os.path.join(output_dir, f"{subject_id}_activation_change.png")
+    file_tag = f"{subject_id}_{band_name}" if band_name else subject_id
+    activation_path = os.path.join(output_dir, f"{file_tag}_activation_change.png")
     fig.tight_layout()
     fig.savefig(activation_path, dpi=300, bbox_inches="tight")
     print(f"Saved activation change plot to: {activation_path}")
@@ -179,7 +257,7 @@ def main() -> None:
     fig.tight_layout()
 
     activation_heatmap_path = os.path.join(
-        output_dir, f"{subject_id}_activation_before_after_heatmap.png"
+        output_dir, f"{file_tag}_activation_before_after_heatmap.png"
     )
     fig.savefig(activation_heatmap_path, dpi=300, bbox_inches="tight")
     print(f"Saved activation heatmap to: {activation_heatmap_path}")
@@ -210,7 +288,7 @@ def main() -> None:
     fig.colorbar(im1, ax=axes, shrink=0.8, pad=-0.3, fraction=0.07)
     fig.tight_layout()
 
-    adjacency_path = os.path.join(output_dir, f"{subject_id}_adjacency_before_after.png")
+    adjacency_path = os.path.join(output_dir, f"{file_tag}_adjacency_before_after.png")
     fig.savefig(adjacency_path, dpi=300, bbox_inches="tight")
     print(f"Saved adjacency comparison to: {adjacency_path}")
 

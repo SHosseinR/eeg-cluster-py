@@ -25,6 +25,59 @@ def _load_pickle_dict(path: str) -> Dict:
     return np.load(path, allow_pickle=True).item()
 
 
+def _get_result_band_info(results: Dict) -> Tuple[Optional[int], Optional[str]]:
+    band_idx = None
+    band_name = None
+
+    if results.get("fixed_band_index") is not None:
+        try:
+            band_idx = int(results["fixed_band_index"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if results.get("fixed_band_name"):
+        band_name = str(results["fixed_band_name"])
+
+    best_solution = results.get("best_solution") or {}
+    if band_idx is None and "band" in best_solution:
+        try:
+            band_idx = int(best_solution["band"])
+        except (TypeError, ValueError):
+            band_idx = None
+
+    if band_name is None and band_idx is not None:
+        band_names = results.get("band_names")
+        if band_names and 0 <= band_idx < len(band_names):
+            band_name = band_names[band_idx]
+
+    return band_idx, band_name
+
+
+def _parse_band_selector(band_selector: Optional[str]) -> Tuple[Optional[int], Optional[str]]:
+    if band_selector is None:
+        return None, None
+    try:
+        return int(band_selector), None
+    except (TypeError, ValueError):
+        return None, str(band_selector)
+
+
+def _matches_band_filter(
+    results: Dict,
+    band_idx_filter: Optional[int],
+    band_name_filter: Optional[str],
+) -> bool:
+    if band_idx_filter is None and band_name_filter is None:
+        return True
+
+    band_idx, band_name = _get_result_band_info(results)
+    if band_idx_filter is not None:
+        return band_idx is not None and band_idx == band_idx_filter
+    if band_name_filter is not None:
+        return band_name is not None and band_name == band_name_filter
+    return True
+
+
 def _find_metadata(optimization_results: Dict) -> Optional[Dict]:
     for _, results in optimization_results.items():
         if not isinstance(results, dict):
@@ -82,11 +135,20 @@ def _rank_best_front(
 def _collect_ranked_solutions(
     optimization_results: Dict,
     top_k: Optional[int],
+    band_idx_filter: Optional[int] = None,
+    band_name_filter: Optional[str] = None,
 ) -> List[Dict]:
     collected = []
     for subject_id, results in optimization_results.items():
         if not isinstance(results, dict):
             continue
+        if not _matches_band_filter(results, band_idx_filter, band_name_filter):
+            continue
+
+        band_idx, band_name = _get_result_band_info(results)
+        subject_label = results.get("subject_id", subject_id)
+        if band_name and band_name_filter is None and band_idx_filter is None:
+            subject_label = f"{subject_label}::{band_name}"
 
         ranked = []
         if results.get("top_solutions"):
@@ -102,7 +164,7 @@ def _collect_ranked_solutions(
             ranked = ranked[:top_k]
 
         for sol in ranked:
-            collected.append({"subject_id": subject_id, **sol})
+            collected.append({"subject_id": subject_label, **sol})
 
     return collected
 
@@ -360,6 +422,11 @@ def main() -> None:
         default=None,
         help="Optional limit of per-cell hover details",
     )
+    parser.add_argument(
+        "--band",
+        default=None,
+        help="Optional band name or index to select from combined results",
+    )
     args = parser.parse_args()
 
     results_path = (
@@ -381,7 +448,13 @@ def main() -> None:
 
     leak_value = SIMULATION_CONFIG.get("leak")
 
-    ranked_solutions = _collect_ranked_solutions(optimization_results, top_k=args.top_k)
+    band_idx_filter, band_name_filter = _parse_band_selector(args.band)
+    ranked_solutions = _collect_ranked_solutions(
+        optimization_results,
+        top_k=args.top_k,
+        band_idx_filter=band_idx_filter,
+        band_name_filter=band_name_filter,
+    )
     if not ranked_solutions:
         raise RuntimeError("No ranked solutions found in results file")
 
