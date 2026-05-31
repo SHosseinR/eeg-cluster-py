@@ -2,6 +2,10 @@
 Configuration for NSGA-II optimization of EEG connectivity
 """
 
+import os
+
+from config import OUTPUT_DIR
+
 # ============================================================================
 # OPTIMIZATION PARAMETERS
 # ============================================================================
@@ -48,6 +52,15 @@ OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable mult
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
+
+# Optional patient filtering before optimization.
+# Generate this ranking with plot_svm_margin_rejection_3d.py.
+PATIENT_REJECTION_PERCENT = 0
+PATIENT_REJECTION_RANKING_FILE = os.path.join(
+    OUTPUT_DIR,
+    'data',
+    'svm_margin_subject_ranking.csv'
+)
 
 # Ranking pool for distance-based selection (grid + NSGA)
 # - True: rank and select from Pareto front only

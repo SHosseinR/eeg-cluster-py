@@ -1,9 +1,11 @@
 """
 Main script to run NSGA-II optimization for EEG connectivity
 """
+import math
 import os
 import sys
 import numpy as np
+import pandas as pd
 from datetime import datetime
 from typing import List
 
@@ -15,7 +17,8 @@ from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
     OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS,
     OPTIMIZATION_TOP_K, OPTIMIZATION_MODE,
-    OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND
+    OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND,
+    PATIENT_REJECTION_PERCENT, PATIENT_REJECTION_RANKING_FILE
 )
 
 # Import optimization modules
@@ -121,6 +124,92 @@ def _get_measures_for_band(band_name: str) -> List[str]:
     if OPTIMIZATION_MEASURES_BY_BAND:
         return OPTIMIZATION_MEASURES_BY_BAND.get(band_name, OPTIMIZATION_MEASURES)
     return OPTIMIZATION_MEASURES
+
+
+def apply_patient_rejection_filter(connectivity_matrices, network_measures, subject_data):
+    """Filter patient dictionaries using the SVM-margin rejection ranking."""
+    rejection_percent = float(PATIENT_REJECTION_PERCENT)
+    if rejection_percent <= 0:
+        print("\nPatient rejection filter: disabled (PATIENT_REJECTION_PERCENT=0)")
+        return connectivity_matrices, network_measures, subject_data
+
+    if rejection_percent < 0 or rejection_percent > 100:
+        raise ValueError(
+            f"PATIENT_REJECTION_PERCENT must be between 0 and 100; got {rejection_percent}"
+        )
+
+    ranking_path = PATIENT_REJECTION_RANKING_FILE.format(OUTPUT_DIR=OUTPUT_DIR)
+    if not os.path.exists(ranking_path):
+        raise FileNotFoundError(
+            "Patient rejection ranking file not found: "
+            f"{ranking_path}\nRun plot_svm_margin_rejection_3d.py first, "
+            "or set PATIENT_REJECTION_PERCENT = 0."
+        )
+
+    ranking_df = pd.read_csv(ranking_path)
+    required_columns = {'subject_id', 'aggregate_rank', 'aggregate_margin_percentile'}
+    missing_columns = required_columns.difference(ranking_df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Ranking file is missing required columns {sorted(missing_columns)}: {ranking_path}"
+        )
+
+    ranking_df = ranking_df.sort_values(
+        by=['aggregate_rank', 'aggregate_margin_percentile', 'subject_id'],
+        ascending=[True, True, True]
+    ).reset_index(drop=True)
+
+    available_patient_ids = set(network_measures.get('Patient', {}).keys())
+    ranked_patient_ids = [
+        sid for sid in ranking_df['subject_id'].astype(str).tolist()
+        if sid in available_patient_ids
+    ]
+    if not ranked_patient_ids:
+        raise ValueError(
+            f"No ranked patient IDs from {ranking_path} match network_measures['Patient']."
+        )
+    unranked_patient_ids = sorted(available_patient_ids.difference(ranked_patient_ids))
+    if unranked_patient_ids:
+        raise ValueError(
+            "Some patient subjects are missing from the SVM-margin ranking file: "
+            f"{unranked_patient_ids}\nRegenerate the ranking with plot_svm_margin_rejection_3d.py "
+            "using the same network_measures.npy before running filtered optimization."
+        )
+
+    reject_n = int(math.ceil(rejection_percent / 100.0 * len(ranked_patient_ids)))
+    reject_n = min(max(reject_n, 0), len(ranked_patient_ids))
+    rejected_ids = set(ranked_patient_ids[:reject_n])
+    retained_ids = [sid for sid in ranked_patient_ids if sid not in rejected_ids]
+
+    print("\n" + "=" * 80)
+    print("PATIENT REJECTION FILTER")
+    print("=" * 80)
+    print(f"Ranking file: {ranking_path}")
+    print(f"Configured rejection percent: {rejection_percent:g}%")
+    print(f"Rejected patients: {len(rejected_ids)}/{len(ranked_patient_ids)}")
+    print(f"Retained patients: {len(retained_ids)}")
+    print(f"Rejected IDs: {sorted(rejected_ids)}")
+    print(f"Retained IDs: {retained_ids}")
+
+    network_measures = dict(network_measures)
+    connectivity_matrices = dict(connectivity_matrices)
+    network_measures['Patient'] = {
+        sid: data
+        for sid, data in network_measures.get('Patient', {}).items()
+        if sid in retained_ids
+    }
+    connectivity_matrices['Patient'] = {
+        sid: data
+        for sid, data in connectivity_matrices.get('Patient', {}).items()
+        if sid in retained_ids
+    }
+    subject_data = {
+        sid: data
+        for sid, data in subject_data.items()
+        if data.get('group') != 'Patient' or sid in retained_ids
+    }
+
+    return connectivity_matrices, network_measures, subject_data
 
 
 def save_candidate_region_selection_stats(
@@ -236,6 +325,16 @@ def main():
         print("\nMake sure you have run the main pipeline first to generate:")
         print("  - connectivity_matrices.npy")
         print("  - network_measures.npy")
+        return
+
+    try:
+        connectivity_matrices, network_measures, subject_data = apply_patient_rejection_filter(
+            connectivity_matrices,
+            network_measures,
+            subject_data
+        )
+    except Exception as e:
+        print(f"\nERROR applying patient rejection filter: {str(e)}")
         return
     
     # Verify requirements
