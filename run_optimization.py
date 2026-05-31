@@ -21,7 +21,8 @@ from optimization_config import (
 # Import optimization modules
 from eeg_optimization import create_optimizer_from_config
 from optimization_visualization import (
-    plot_optimization_summary, create_optimization_report
+    plot_optimization_summary, create_optimization_report,
+    plot_candidate_region_statistics
 )
 from statistics_utils import compute_candidate_region_selection_stats
 
@@ -122,7 +123,12 @@ def _get_measures_for_band(band_name: str) -> List[str]:
     return OPTIMIZATION_MEASURES
 
 
-def save_candidate_region_selection_stats(optimization_results, channel_names, output_dir):
+def save_candidate_region_selection_stats(
+    optimization_results,
+    channel_names,
+    output_dir,
+    figures_dir=None
+):
     """Save selection-frequency tests for candidate stimulation electrodes."""
     stats_df = compute_candidate_region_selection_stats(
         optimization_results,
@@ -131,7 +137,17 @@ def save_candidate_region_selection_stats(optimization_results, channel_names, o
     stats_path = os.path.join(output_dir, 'candidate_region_selection_stats.csv')
     stats_df.to_csv(stats_path, index=False)
     print(f"Saved candidate-region selection statistics: {stats_path}")
-    return stats_path
+
+    figure_paths = []
+    if figures_dir is not None:
+        figure_paths = plot_candidate_region_statistics(
+            stats_df,
+            channel_names,
+            figures_dir,
+            prefix='final_target_statistics'
+        )
+
+    return stats_path, figure_paths
 
 
 def verify_optimization_requirements(connectivity_matrices, network_measures):
@@ -330,13 +346,15 @@ def main():
             traceback.print_exc()
 
         try:
-            candidate_stats_path = save_candidate_region_selection_stats(
+            candidate_stats_path, candidate_stats_figures = save_candidate_region_selection_stats(
                 combined_results,
                 channel_names,
-                OPTIMIZATION_OUTPUT_DIR
+                OPTIMIZATION_OUTPUT_DIR,
+                figures_dir=OPTIMIZATION_FIGURES_DIR
             )
         except Exception as e:
             candidate_stats_path = None
+            candidate_stats_figures = []
             print(f"\nERROR saving candidate-region statistics: {str(e)}")
             import traceback
             traceback.print_exc()
@@ -428,13 +446,15 @@ def main():
             traceback.print_exc()
 
         try:
-            candidate_stats_path = save_candidate_region_selection_stats(
+            candidate_stats_path, candidate_stats_figures = save_candidate_region_selection_stats(
                 optimization_results,
                 channel_names,
-                OPTIMIZATION_OUTPUT_DIR
+                OPTIMIZATION_OUTPUT_DIR,
+                figures_dir=OPTIMIZATION_FIGURES_DIR
             )
         except Exception as e:
             candidate_stats_path = None
+            candidate_stats_figures = []
             print(f"\nERROR saving candidate-region statistics: {str(e)}")
             import traceback
             traceback.print_exc()
@@ -452,6 +472,10 @@ def main():
     print(f"  - Report: {report_path}")
     if 'candidate_stats_path' in locals() and candidate_stats_path:
         print(f"  - Candidate-region stats: {candidate_stats_path}")
+    if 'candidate_stats_figures' in locals() and candidate_stats_figures:
+        print("  - Candidate-region statistic figures:")
+        for figure_path in candidate_stats_figures:
+            print(f"    - {figure_path}")
     print("="*80 + "\n")
 
 

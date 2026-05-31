@@ -143,6 +143,379 @@ def plot_node_histogram(optimization_results: Dict,
     return fig
 
 
+def _candidate_region_counts(candidate_stats_df, channel_names):
+    """Rebuild node selection counts from candidate-region pairwise stats."""
+    counts = np.zeros(len(channel_names), dtype=int)
+    if candidate_stats_df is None or candidate_stats_df.empty:
+        return counts, None, None
+
+    first_row = candidate_stats_df.iloc[0]
+    top_node = int(first_row['top_node'])
+    counts[top_node] = int(first_row['top_count'])
+    symmetric_node = None
+
+    for _, row in candidate_stats_df.iterrows():
+        comparison_node = int(row['comparison_node'])
+        counts[comparison_node] = int(row['comparison_count'])
+        if row.get('comparison_relation') == 'symmetric':
+            symmetric_node = comparison_node
+
+    return counts, top_node, symmetric_node
+
+
+def _format_pvalue(pvalue):
+    if pvalue is None or not np.isfinite(float(pvalue)):
+        return "N/A"
+    pvalue = float(pvalue)
+    if pvalue < 0.001:
+        return f"{pvalue:.2e}"
+    return f"{pvalue:.3f}"
+
+
+def plot_candidate_region_selection_counts(candidate_stats_df,
+                                           channel_names: List[str],
+                                           save_path: str = None,
+                                           figsize: Tuple = (13, 6)):
+    """
+    Plot final target selection counts across electrodes.
+
+    Highlights the most-selected target and, if available, its symmetric
+    contralateral homolog.
+    """
+    counts, top_node, symmetric_node = _candidate_region_counts(candidate_stats_df, channel_names)
+    if top_node is None:
+        print("No candidate-region statistics to plot")
+        return None
+
+    n_units = int(candidate_stats_df.iloc[0]['n_optimization_units'])
+    x_pos = np.arange(len(channel_names))
+    colors = ['#5B8DB8'] * len(channel_names)
+    colors[top_node] = '#C73E3A'
+    if symmetric_node is not None:
+        colors[symmetric_node] = '#F0A202'
+
+    fig, ax = plt.subplots(figsize=figsize)
+    bars = ax.bar(x_pos, counts, color=colors, edgecolor='black', linewidth=0.6, alpha=0.92)
+
+    ax.set_title('Final Candidate Stimulation Targets', fontsize=15, fontweight='bold')
+    ax.set_xlabel('Electrode')
+    ax.set_ylabel('Selection count')
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(channel_names, rotation=45, ha='right')
+    ax.grid(axis='y', alpha=0.25)
+
+    for idx, bar in enumerate(bars):
+        height = bar.get_height()
+        if height > 0:
+            pct = height / n_units * 100.0
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                f"{int(height)}\n{pct:.0f}%",
+                ha='center',
+                va='bottom',
+                fontsize=8,
+                fontweight='bold' if idx == top_node else 'normal'
+            )
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color='#C73E3A', label='Most selected target'),
+        plt.Rectangle((0, 0), 1, 1, color='#F0A202', label='Symmetric homolog'),
+        plt.Rectangle((0, 0), 1, 1, color='#5B8DB8', label='Other electrodes')
+    ]
+    ax.legend(handles=handles, frameon=False, loc='upper right')
+    ax.text(
+        0.01,
+        0.97,
+        f"Optimization units: {n_units}",
+        transform=ax.transAxes,
+        ha='left',
+        va='top',
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85),
+        fontsize=9
+    )
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Candidate-region selection count figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_candidate_region_symmetric_comparison(candidate_stats_df,
+                                               save_path: str = None,
+                                               figsize: Tuple = (7, 5)):
+    """Plot the most-selected target against the symmetric homolog."""
+    if candidate_stats_df is None or candidate_stats_df.empty:
+        print("No candidate-region statistics to plot")
+        return None
+
+    symmetric_rows = candidate_stats_df[
+        candidate_stats_df['comparison_relation'] == 'symmetric'
+    ]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if symmetric_rows.empty:
+        first_row = candidate_stats_df.iloc[0]
+        ax.axis('off')
+        ax.set_title('Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
+        ax.text(
+            0.5,
+            0.58,
+            f"Most-selected target: {first_row['top_region']}",
+            ha='center',
+            va='center',
+            fontsize=14,
+            fontweight='bold'
+        )
+        ax.text(
+            0.5,
+            0.42,
+            "No contralateral homolog is defined\nfor this electrode.",
+            ha='center',
+            va='center',
+            fontsize=11
+        )
+    else:
+        row = symmetric_rows.iloc[0]
+        labels = [row['top_region'], row['comparison_region']]
+        counts = [int(row['top_count']), int(row['comparison_count'])]
+        p_uncorrected = float(row['p_uncorrected'])
+        p_fdr = float(row['p_fdr_bh'])
+
+        bars = ax.bar(labels, counts, color=['#C73E3A', '#F0A202'],
+                      edgecolor='black', alpha=0.93)
+        ax.set_title('Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Selection count')
+        ax.grid(axis='y', alpha=0.25)
+
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                str(int(height)),
+                ha='center',
+                va='bottom',
+                fontsize=11,
+                fontweight='bold'
+            )
+
+        ax.text(
+            0.5,
+            0.96,
+            f"one-sided exact p = {_format_pvalue(p_uncorrected)}\n"
+            f"FDR p = {_format_pvalue(p_fdr)}",
+            transform=ax.transAxes,
+            ha='center',
+            va='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.88),
+            fontsize=10
+        )
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Candidate-region symmetric comparison figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_candidate_region_pairwise_superiority(candidate_stats_df,
+                                               save_path: str = None,
+                                               figsize: Tuple = (11, 8)):
+    """Plot FDR-corrected pairwise tests: top target versus each other electrode."""
+    if candidate_stats_df is None or candidate_stats_df.empty:
+        print("No candidate-region statistics to plot")
+        return None
+
+    plot_df = candidate_stats_df.copy()
+    plot_df['neg_log10_fdr_p'] = -np.log10(
+        np.clip(plot_df['p_fdr_bh'].astype(float), 1e-300, 1.0)
+    )
+    plot_df['is_significant'] = plot_df['p_fdr_bh'].astype(float) < 0.05
+    plot_df = plot_df.sort_values(
+        by=['is_significant', 'neg_log10_fdr_p', 'comparison_region'],
+        ascending=[True, True, True]
+    )
+
+    colors = []
+    for _, row in plot_df.iterrows():
+        if row['comparison_relation'] == 'symmetric':
+            colors.append('#F0A202')
+        elif bool(row['is_significant']):
+            colors.append('#3A7D44')
+        else:
+            colors.append('#7A8FA6')
+
+    fig, ax = plt.subplots(figsize=figsize)
+    bars = ax.barh(
+        plot_df['comparison_region'],
+        plot_df['neg_log10_fdr_p'],
+        color=colors,
+        edgecolor='black',
+        linewidth=0.5,
+        alpha=0.93
+    )
+
+    threshold = -np.log10(0.05)
+    ax.axvline(threshold, color='#C73E3A', linestyle='--',
+               linewidth=1.5, label='FDR p = 0.05')
+    top_region = str(plot_df['top_region'].iloc[0])
+    ax.set_title(f'Pairwise Superiority: {top_region} vs Other Electrodes',
+                 fontsize=14, fontweight='bold')
+    ax.set_xlabel('-log10(FDR-corrected p-value)')
+    ax.set_ylabel('Comparison electrode')
+    ax.grid(axis='x', alpha=0.25)
+
+    for bar, (_, row) in zip(bars, plot_df.iterrows()):
+        label = f"{int(row['top_count'])} vs {int(row['comparison_count'])}"
+        ax.text(
+            bar.get_width() + 0.03,
+            bar.get_y() + bar.get_height() / 2,
+            label,
+            va='center',
+            fontsize=8
+        )
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color='#3A7D44', label='FDR significant'),
+        plt.Rectangle((0, 0), 1, 1, color='#F0A202', label='Symmetric homolog'),
+        plt.Rectangle((0, 0), 1, 1, color='#7A8FA6', label='Not significant')
+    ]
+    ax.legend(handles=handles, frameon=False, loc='lower right')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Candidate-region pairwise superiority figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_candidate_region_statistics_dashboard(candidate_stats_df,
+                                               channel_names: List[str],
+                                               save_path: str = None,
+                                               figsize: Tuple = (14, 9)):
+    """Create a compact dashboard for final-target selection statistics."""
+    counts, top_node, symmetric_node = _candidate_region_counts(candidate_stats_df, channel_names)
+    if top_node is None:
+        print("No candidate-region statistics to plot")
+        return None
+
+    top_region = channel_names[top_node]
+    n_units = int(candidate_stats_df.iloc[0]['n_optimization_units'])
+    top_count = int(candidate_stats_df.iloc[0]['top_count'])
+    significant_count = int(np.sum(candidate_stats_df['p_fdr_bh'].astype(float) < 0.05))
+
+    fig = plt.figure(figsize=figsize)
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.25], width_ratios=[1.0, 1.1])
+    ax_summary = fig.add_subplot(grid[0, 0])
+    ax_counts = fig.add_subplot(grid[0, 1])
+    ax_pvalues = fig.add_subplot(grid[1, :])
+
+    ax_summary.axis('off')
+    symmetric_text = "N/A"
+    if symmetric_node is not None:
+        symmetric_rows = candidate_stats_df[candidate_stats_df['comparison_relation'] == 'symmetric']
+        if not symmetric_rows.empty:
+            row = symmetric_rows.iloc[0]
+            symmetric_text = (
+                f"{row['comparison_region']} "
+                f"({int(row['top_count'])} vs {int(row['comparison_count'])}, "
+                f"FDR p={_format_pvalue(row['p_fdr_bh'])})"
+            )
+
+    summary_text = (
+        f"Most-selected target: {top_region}\n"
+        f"Selection rate: {top_count}/{n_units} ({top_count / n_units * 100:.1f}%)\n"
+        f"Symmetric comparison: {symmetric_text}\n"
+        f"FDR-significant pairwise wins: {significant_count}/{len(candidate_stats_df)}"
+    )
+    ax_summary.text(
+        0.03,
+        0.94,
+        summary_text,
+        ha='left',
+        va='top',
+        fontsize=12,
+        linespacing=1.5,
+        bbox=dict(boxstyle='round', facecolor='#F7F7F7', edgecolor='#BDBDBD')
+    )
+    ax_summary.set_title('Final Target Statistics Summary', fontsize=13, fontweight='bold')
+
+    top_order = np.argsort(counts)[::-1][:min(8, len(channel_names))]
+    top_order = top_order[::-1]
+    count_colors = ['#C73E3A' if idx == top_node else '#5B8DB8' for idx in top_order]
+    ax_counts.barh([channel_names[idx] for idx in top_order], counts[top_order],
+                   color=count_colors, edgecolor='black', linewidth=0.5)
+    ax_counts.set_title('Top Selected Electrodes', fontsize=13, fontweight='bold')
+    ax_counts.set_xlabel('Selection count')
+    ax_counts.grid(axis='x', alpha=0.25)
+
+    plot_df = candidate_stats_df.copy()
+    plot_df['neg_log10_fdr_p'] = -np.log10(
+        np.clip(plot_df['p_fdr_bh'].astype(float), 1e-300, 1.0)
+    )
+    plot_df = plot_df.sort_values('neg_log10_fdr_p', ascending=False).head(12).iloc[::-1]
+    p_colors = np.where(plot_df['p_fdr_bh'].astype(float) < 0.05, '#3A7D44', '#7A8FA6')
+    ax_pvalues.barh(plot_df['comparison_region'], plot_df['neg_log10_fdr_p'],
+                    color=p_colors, edgecolor='black', linewidth=0.5)
+    ax_pvalues.axvline(-np.log10(0.05), color='#C73E3A', linestyle='--', linewidth=1.4)
+    ax_pvalues.set_title('Strongest Pairwise Superiority Tests', fontsize=13, fontweight='bold')
+    ax_pvalues.set_xlabel('-log10(FDR-corrected p-value)')
+    ax_pvalues.grid(axis='x', alpha=0.25)
+
+    fig.suptitle('Final Candidate Stimulation Target Statistics',
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Candidate-region statistics dashboard saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_candidate_region_statistics(candidate_stats_df,
+                                     channel_names: List[str],
+                                     output_dir: str,
+                                     prefix: str = 'final_target_statistics'):
+    """Create all final-target statistical figures."""
+    os.makedirs(output_dir, exist_ok=True)
+    figure_specs = [
+        (
+            plot_candidate_region_statistics_dashboard,
+            os.path.join(output_dir, f'{prefix}_dashboard.png'),
+            (candidate_stats_df, channel_names)
+        ),
+        (
+            plot_candidate_region_selection_counts,
+            os.path.join(output_dir, f'{prefix}_selection_counts.png'),
+            (candidate_stats_df, channel_names)
+        ),
+        (
+            plot_candidate_region_symmetric_comparison,
+            os.path.join(output_dir, f'{prefix}_symmetric_comparison.png'),
+            (candidate_stats_df,)
+        ),
+        (
+            plot_candidate_region_pairwise_superiority,
+            os.path.join(output_dir, f'{prefix}_pairwise_superiority.png'),
+            (candidate_stats_df,)
+        )
+    ]
+
+    created = []
+    for plot_func, save_path, args in figure_specs:
+        fig = plot_func(*args, save_path=save_path)
+        if fig is not None:
+            created.append(save_path)
+
+    return created
+
+
 def plot_band_histogram(optimization_results: Dict,
                        band_names: List[str],
                        save_path: str = None,
