@@ -23,6 +23,7 @@ from eeg_optimization import create_optimizer_from_config
 from optimization_visualization import (
     plot_optimization_summary, create_optimization_report
 )
+from statistics_utils import compute_candidate_region_selection_stats
 
 # Import data loading (assuming these exist in your main pipeline)
 from data_loader import load_group_data
@@ -119,6 +120,18 @@ def _get_measures_for_band(band_name: str) -> List[str]:
     if OPTIMIZATION_MEASURES_BY_BAND:
         return OPTIMIZATION_MEASURES_BY_BAND.get(band_name, OPTIMIZATION_MEASURES)
     return OPTIMIZATION_MEASURES
+
+
+def save_candidate_region_selection_stats(optimization_results, channel_names, output_dir):
+    """Save selection-frequency tests for candidate stimulation electrodes."""
+    stats_df = compute_candidate_region_selection_stats(
+        optimization_results,
+        channel_names
+    )
+    stats_path = os.path.join(output_dir, 'candidate_region_selection_stats.csv')
+    stats_df.to_csv(stats_path, index=False)
+    print(f"Saved candidate-region selection statistics: {stats_path}")
+    return stats_path
 
 
 def verify_optimization_requirements(connectivity_matrices, network_measures):
@@ -315,6 +328,18 @@ def main():
             print(f"\nERROR creating report: {str(e)}")
             import traceback
             traceback.print_exc()
+
+        try:
+            candidate_stats_path = save_candidate_region_selection_stats(
+                combined_results,
+                channel_names,
+                OPTIMIZATION_OUTPUT_DIR
+            )
+        except Exception as e:
+            candidate_stats_path = None
+            print(f"\nERROR saving candidate-region statistics: {str(e)}")
+            import traceback
+            traceback.print_exc()
     else:
         # Create optimizer
         print("\n" + "="*80)
@@ -401,6 +426,18 @@ def main():
             print(f"\nERROR creating report: {str(e)}")
             import traceback
             traceback.print_exc()
+
+        try:
+            candidate_stats_path = save_candidate_region_selection_stats(
+                optimization_results,
+                channel_names,
+                OPTIMIZATION_OUTPUT_DIR
+            )
+        except Exception as e:
+            candidate_stats_path = None
+            print(f"\nERROR saving candidate-region statistics: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     # Summary
     print("\n" + "="*80)
@@ -413,6 +450,8 @@ def main():
         print(f"  - Per-band results: {OPTIMIZATION_OUTPUT_DIR}/*_{OPTIMIZATION_RESULTS_FILE}")
     print(f"  - Figures: {OPTIMIZATION_FIGURES_DIR}")
     print(f"  - Report: {report_path}")
+    if 'candidate_stats_path' in locals() and candidate_stats_path:
+        print(f"  - Candidate-region stats: {candidate_stats_path}")
     print("="*80 + "\n")
 
 

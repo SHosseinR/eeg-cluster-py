@@ -22,12 +22,12 @@ EPOCH_DURATION = 10.0  # seconds
 OVERLAP = 0.0  # No overlap between epochs
 
 # Frequency bands (Hz)
+# Theta and gamma are intentionally excluded from analysis/optimization based on
+# prior knowledge for this project.
 FREQUENCY_BANDS = {
     'delta': (1, 4),
-    'theta': (4, 8),
     'alpha': (8, 13),
     'beta': (13, 30),
-    'gamma': (30, 45)
 }
 
 # ============================================================================

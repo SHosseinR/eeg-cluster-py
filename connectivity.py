@@ -286,14 +286,22 @@ def normalize_connectivity_matrix(matrix):
     normalized : ndarray
         Normalized connectivity matrix
     """
-    # Min-max normalization
-    min_val = np.min(matrix)
-    max_val = np.max(matrix)
+    matrix = np.asarray(matrix, dtype=float)
+    finite_mask = np.isfinite(matrix)
+    if not np.any(finite_mask):
+        return np.zeros_like(matrix, dtype=float)
+
+    # Min-max normalization over valid entries only. This prevents one NaN edge
+    # from turning a whole subject/band matrix into NaNs.
+    min_val = np.min(matrix[finite_mask])
+    max_val = np.max(matrix[finite_mask])
     
     if max_val - min_val > 0:
         normalized = (matrix - min_val) / (max_val - min_val)
     else:
-        normalized = matrix
+        normalized = np.zeros_like(matrix, dtype=float)
+
+    normalized = np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=0.0)
     
     return normalized
 

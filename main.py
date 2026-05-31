@@ -22,7 +22,7 @@ from connectivity import compute_all_connectivity
 from network_measures import compute_network_measures_for_subjects, compute_all_network_measures
 from statistics_utils import (
     compute_pvalue_matrix, compute_group_comparison_pvalues,
-    extract_features_for_classification
+    extract_features_for_classification, summarize_connectivity_stability
 )
 from visualization import (
     plot_connectivity_matrices, plot_pvalue_matrices,
@@ -210,6 +210,17 @@ def main():
             list(FREQUENCY_BANDS.keys()),
             output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz3_pvalue_per_band.png')
         )
+
+        stability_summary_df = summarize_connectivity_stability(
+            connectivity_matrices,
+            CONNECTIVITY_METHODS,
+            list(FREQUENCY_BANDS.keys())
+        )
+        stability_summary_df.to_csv(
+            os.path.join(OUTPUT_DIR, 'data', 'connectivity_stability_summary.csv'),
+            index=False
+        )
+        print("\nSaved connectivity stability summary to CSV")
         
     # ========================================================================
     # STEP 5: NETWORK MEASURES

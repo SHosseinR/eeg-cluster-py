@@ -677,6 +677,12 @@ def create_optimization_report(optimization_results: Dict,
     if not optimization_directions and stored_directions:
         optimization_directions = dict(stored_directions)
 
+    unit_label = (
+        "subject-band units"
+        if any("::" in str(result_key) for result_key in optimization_results.keys())
+        else "subjects"
+    )
+
     def _distance_to_gt(values):
         if healthy_baselines is None:
             return None
@@ -695,7 +701,7 @@ def create_optimization_report(optimization_results: Dict,
         f.write("="*80 + "\n\n")
         
         # Overall statistics
-        f.write(f"Total subjects optimized: {len(optimization_results)}\n")
+        f.write(f"Total optimization units: {len(optimization_results)} ({unit_label})\n")
         f.write(f"Number of nodes: {len(channel_names)}\n")
         f.write(f"Number of frequency bands: {len(band_names)}\n")
         f.write(f"Optimization measures: {', '.join(optimization_measures)}\n")
@@ -733,8 +739,62 @@ def create_optimization_report(optimization_results: Dict,
         for rank, node_idx in enumerate(top_nodes, 1):
             if node_counts[node_idx] > 0:
                 f.write(f"  {rank}. {channel_names[node_idx]}: "
-                       f"{node_counts[node_idx]} subjects ({node_counts[node_idx]/len(optimal_nodes)*100:.1f}%)\n")
+                       f"{node_counts[node_idx]} {unit_label} ({node_counts[node_idx]/len(optimal_nodes)*100:.1f}%)\n")
         f.write("\n")
+
+        try:
+            from statistics_utils import compute_candidate_region_selection_stats
+            candidate_stats_df = compute_candidate_region_selection_stats(
+                optimization_results,
+                channel_names
+            )
+        except Exception as exc:
+            candidate_stats_df = None
+            f.write("Candidate-region statistics could not be computed: "
+                    f"{exc}\n\n")
+
+        if candidate_stats_df is not None and not candidate_stats_df.empty:
+            top_region = candidate_stats_df.iloc[0]['top_region']
+            top_count = int(candidate_stats_df.iloc[0]['top_count'])
+            n_units = int(candidate_stats_df.iloc[0]['n_optimization_units'])
+            f.write("="*80 + "\n")
+            f.write("CANDIDATE REGION SELECTION STATISTICS\n")
+            f.write("="*80 + "\n")
+            f.write(
+                f"Most-selected region: {top_region} "
+                f"({top_count}/{n_units}, {top_count/n_units*100:.1f}%)\n"
+            )
+            f.write(
+                "Test: exact one-sided binomial/McNemar-style count test "
+                "for top region > comparison region; p_fdr_bh corrects all "
+                "pairwise electrode comparisons.\n\n"
+            )
+
+            symmetric_rows = candidate_stats_df[
+                candidate_stats_df['comparison_relation'] == 'symmetric'
+            ]
+            if not symmetric_rows.empty:
+                row = symmetric_rows.iloc[0]
+                f.write("Contralateral homolog comparison:\n")
+                f.write(
+                    f"  {row['top_region']} vs {row['comparison_region']}: "
+                    f"{int(row['top_count'])} vs {int(row['comparison_count'])}, "
+                    f"p={row['p_uncorrected']:.6g}, "
+                    f"p_fdr_bh={row['p_fdr_bh']:.6g}\n\n"
+                )
+            else:
+                f.write("Contralateral homolog comparison: not available for this top region.\n\n")
+
+            f.write("Strongest pairwise comparisons against other regions:\n")
+            for _, row in candidate_stats_df.head(10).iterrows():
+                f.write(
+                    f"  {row['top_region']} vs {row['comparison_region']} "
+                    f"({row['comparison_relation']}): "
+                    f"{int(row['top_count'])} vs {int(row['comparison_count'])}, "
+                    f"p={row['p_uncorrected']:.6g}, "
+                    f"p_fdr_bh={row['p_fdr_bh']:.6g}\n"
+                )
+            f.write("\n")
         
         # Band distribution
         optimal_bands = [r['best_solution']['band'] for r in optimization_results.values()
@@ -747,7 +807,7 @@ def create_optimization_report(optimization_results: Dict,
         for band_idx, count in enumerate(band_counts):
             if count > 0:
                 f.write(f"  {band_names[band_idx]}: "
-                       f"{count} subjects ({count/len(optimal_bands)*100:.1f}%)\n")
+                       f"{count} {unit_label} ({count/len(optimal_bands)*100:.1f}%)\n")
         f.write("\n")
         
         # Per-subject results

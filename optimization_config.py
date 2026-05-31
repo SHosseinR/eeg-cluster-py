@@ -29,10 +29,8 @@ OPTIMIZATION_PER_BAND = True
 # Example:
 OPTIMIZATION_MEASURES_BY_BAND = {
     'delta': ['cv_weight', 'diameter', 'mean_weight'],
-    'theta': ['small_worldness', 'betweenness_centrality', 'median_weight'],
     'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
     'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
-    'gamma': ['mean_weight', 'modularity', 'spectral_radius'],
 }
 # OPTIMIZATION_MEASURES_BY_BAND = {}
 

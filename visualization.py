@@ -6,11 +6,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from config import FIGURE_DPI, FIGURE_SIZE, CMAP_CONNECTIVITY, CMAP_PVALUE
+from config import FIGURE_DPI, FIGURE_SIZE, CMAP_CONNECTIVITY, CMAP_PVALUE, FREQUENCY_BANDS
 
 # Set style
 sns.set_style("whitegrid")
 plt.rcParams['figure.dpi'] = FIGURE_DPI
+
+
+def _pvalue_cmap():
+    cmap = plt.get_cmap(CMAP_PVALUE).copy()
+    cmap.set_bad(color='lightgray')
+    return cmap
 
 def plot_connectivity_matrices(connectivity_dict, methods, output_path=None):
     """
@@ -40,7 +46,8 @@ def plot_connectivity_matrices(connectivity_dict, methods, output_path=None):
             for subject_data in group_data.values():
                 if method in subject_data:
                     for band, matrix in subject_data[method].items():
-                        all_matrices.append(matrix)
+                        if band in FREQUENCY_BANDS:
+                            all_matrices.append(matrix)
         
         if len(all_matrices) > 0:
             # Average across all matrices
@@ -98,17 +105,21 @@ def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
             for subject_data in group_data.values():
                 if method in subject_data:
                     for band, matrix in subject_data[method].items():
-                        all_matrices.append(matrix)
+                        if band in FREQUENCY_BANDS:
+                            all_matrices.append(matrix)
         
         if len(all_matrices) > 0:
             # Compute p-values
-            pvalue_matrix, mean_matrix = compute_pvalue_matrix(all_matrices)
-            print(f'{pvalue_matrix=}')
+            pvalue_matrix, mean_matrix = compute_pvalue_matrix(
+                all_matrices,
+                alternative='greater'
+            )
+            finite = np.isfinite(pvalue_matrix)
             
             # Plot p-values
-            im = axes[idx].imshow(pvalue_matrix, cmap=CMAP_PVALUE, 
+            im = axes[idx].imshow(np.ma.masked_invalid(pvalue_matrix), cmap=_pvalue_cmap(), 
                                  aspect='auto', vmin=0, vmax=0.2)
-            axes[idx].set_title(f'{method.upper()}\nP-values (H0: mean=0)', 
+            axes[idx].set_title(f'{method.upper()}\nStability p-values (H0: mean<=0)', 
                               fontsize=12, fontweight='bold')
             axes[idx].set_xlabel('Target Node')
             axes[idx].set_ylabel('Source Node')
@@ -117,9 +128,10 @@ def plot_pvalue_matrices(connectivity_dict, methods, output_path=None):
             cbar = plt.colorbar(im, ax=axes[idx], label='P-value')
             
             # Add significance threshold lines
-            axes[idx].text(0.02, 0.98, f'p<0.001: {np.sum(pvalue_matrix < 0.001)} edges\n'
-                                       f'p<0.01: {np.sum(pvalue_matrix < 0.01)} edges\n'
-                                       f'p<0.05: {np.sum(pvalue_matrix < 0.05)} edges',
+            axes[idx].text(0.02, 0.98, f'p<0.001: {np.sum((pvalue_matrix < 0.001) & finite)} edges\n'
+                                       f'p<0.01: {np.sum((pvalue_matrix < 0.01) & finite)} edges\n'
+                                       f'p<0.05: {np.sum((pvalue_matrix < 0.05) & finite)} edges\n'
+                                       f'finite: {np.sum(finite)}',
                           transform=axes[idx].transAxes, 
                           verticalalignment='top',
                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
@@ -171,12 +183,16 @@ def plot_pvalue_matrices_per_band(connectivity_dict, band_names, output_path=Non
         
         if len(all_matrices) > 0:
             # Compute p-values
-            pvalue_matrix, mean_matrix = compute_pvalue_matrix(all_matrices)
+            pvalue_matrix, mean_matrix = compute_pvalue_matrix(
+                all_matrices,
+                alternative='greater'
+            )
+            finite = np.isfinite(pvalue_matrix)
             
             # Plot p-values
-            im = axes[idx].imshow(pvalue_matrix, cmap=CMAP_PVALUE, 
+            im = axes[idx].imshow(np.ma.masked_invalid(pvalue_matrix), cmap=_pvalue_cmap(), 
                                  aspect='auto', vmin=0, vmax=0.1)
-            axes[idx].set_title(f'{band.upper()}\n(Avg over methods)', 
+            axes[idx].set_title(f'{band.upper()}\nStability', 
                               fontsize=11, fontweight='bold')
             axes[idx].set_xlabel('Target')
             axes[idx].set_ylabel('Source')
@@ -187,7 +203,7 @@ def plot_pvalue_matrices_per_band(connectivity_dict, band_names, output_path=Non
             
             # Add significance counts
             axes[idx].text(0.02, 0.98, 
-                          f'p<0.05:\n{np.sum(pvalue_matrix < 0.05)}',
+                          f'p<0.05:\n{np.sum((pvalue_matrix < 0.05) & finite)}\nfinite:\n{np.sum(finite)}',
                           transform=axes[idx].transAxes, 
                           verticalalignment='top',
                           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
