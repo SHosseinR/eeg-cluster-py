@@ -220,16 +220,35 @@ def save_candidate_region_selection_stats(
     optimization_results,
     channel_names,
     output_dir,
-    figures_dir=None
+    figures_dir=None,
+    file_prefix=None,
+    figure_prefix=None,
+    label=None
 ):
     """Save selection-frequency tests for candidate stimulation electrodes."""
+    output_label = f" ({label})" if label else ""
+    file_stem = f"{file_prefix}_" if file_prefix else ""
+    hard_figure_prefix = (
+        f"{figure_prefix}_hard_best_solution_target_statistics"
+        if figure_prefix else
+        "hard_best_solution_target_statistics"
+    )
+    weighted_figure_prefix = (
+        f"{figure_prefix}_rank_weighted_target_statistics"
+        if figure_prefix else
+        "rank_weighted_target_statistics"
+    )
+
     stats_df = compute_candidate_region_selection_stats(
         optimization_results,
         channel_names
     )
-    stats_path = os.path.join(output_dir, 'candidate_region_selection_stats.csv')
+    stats_path = os.path.join(
+        output_dir,
+        f'{file_stem}candidate_region_selection_stats.csv'
+    )
     stats_df.to_csv(stats_path, index=False)
-    print(f"Saved hard best-solution candidate-region statistics: {stats_path}")
+    print(f"Saved hard best-solution candidate-region statistics{output_label}: {stats_path}")
 
     weighted_stats_df = compute_candidate_region_weighted_rank_stats(
         optimization_results,
@@ -237,10 +256,10 @@ def save_candidate_region_selection_stats(
     )
     weighted_stats_path = os.path.join(
         output_dir,
-        'candidate_region_weighted_rank_stats.csv'
+        f'{file_stem}candidate_region_weighted_rank_stats.csv'
     )
     weighted_stats_df.to_csv(weighted_stats_path, index=False)
-    print(f"Saved rank-weighted candidate-region statistics: {weighted_stats_path}")
+    print(f"Saved rank-weighted candidate-region statistics{output_label}: {weighted_stats_path}")
 
     figure_paths = []
     if figures_dir is not None:
@@ -248,16 +267,17 @@ def save_candidate_region_selection_stats(
             stats_df,
             channel_names,
             figures_dir,
-            prefix='hard_best_solution_target_statistics'
+            prefix=hard_figure_prefix
         )
         figure_paths.extend(plot_weighted_rank_region_statistics(
             weighted_stats_df,
             channel_names,
             figures_dir,
-            prefix='rank_weighted_target_statistics'
+            prefix=weighted_figure_prefix
         ))
 
     return {
+        'label': label,
         'hard_stats_path': stats_path,
         'weighted_stats_path': weighted_stats_path,
         'figure_paths': figure_paths
@@ -373,6 +393,7 @@ def main():
         results_by_band = {}
         combined_results = {}
         optimization_directions = {}
+        candidate_stats_outputs = []
 
         print("\n" + "="*80)
         print("CREATING PER-BAND OPTIMIZERS")
@@ -423,6 +444,21 @@ def main():
             )
             optimizer.save_results(band_results_path)
 
+            try:
+                candidate_stats_outputs.append(save_candidate_region_selection_stats(
+                    optimization_results,
+                    channel_names,
+                    OPTIMIZATION_OUTPUT_DIR,
+                    figures_dir=OPTIMIZATION_FIGURES_DIR,
+                    file_prefix=band_name,
+                    figure_prefix=band_name,
+                    label=f"{band_name} band"
+                ))
+            except Exception as e:
+                print(f"\nERROR saving candidate-region statistics for band {band_name}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
         print("\n" + "="*80)
         print("SAVING COMBINED RESULTS")
         print("="*80)
@@ -470,14 +506,14 @@ def main():
             traceback.print_exc()
 
         try:
-            candidate_stats_outputs = save_candidate_region_selection_stats(
+            candidate_stats_outputs.append(save_candidate_region_selection_stats(
                 combined_results,
                 channel_names,
                 OPTIMIZATION_OUTPUT_DIR,
-                figures_dir=OPTIMIZATION_FIGURES_DIR
-            )
+                figures_dir=OPTIMIZATION_FIGURES_DIR,
+                label="combined across bands"
+            ))
         except Exception as e:
-            candidate_stats_outputs = {}
             print(f"\nERROR saving candidate-region statistics: {str(e)}")
             import traceback
             traceback.print_exc()
@@ -569,14 +605,14 @@ def main():
             traceback.print_exc()
 
         try:
-            candidate_stats_outputs = save_candidate_region_selection_stats(
+            candidate_stats_outputs = [save_candidate_region_selection_stats(
                 optimization_results,
                 channel_names,
                 OPTIMIZATION_OUTPUT_DIR,
                 figures_dir=OPTIMIZATION_FIGURES_DIR
-            )
+            )]
         except Exception as e:
-            candidate_stats_outputs = {}
+            candidate_stats_outputs = []
             print(f"\nERROR saving candidate-region statistics: {str(e)}")
             import traceback
             traceback.print_exc()
@@ -593,14 +629,17 @@ def main():
     print(f"  - Figures: {OPTIMIZATION_FIGURES_DIR}")
     print(f"  - Report: {report_path}")
     if 'candidate_stats_outputs' in locals() and candidate_stats_outputs:
-        if candidate_stats_outputs.get('hard_stats_path'):
-            print(f"  - Hard best-solution stats: {candidate_stats_outputs['hard_stats_path']}")
-        if candidate_stats_outputs.get('weighted_stats_path'):
-            print(f"  - Rank-weighted stats: {candidate_stats_outputs['weighted_stats_path']}")
-    if 'candidate_stats_outputs' in locals() and candidate_stats_outputs.get('figure_paths'):
-        print("  - Candidate-region statistic figures:")
-        for figure_path in candidate_stats_outputs['figure_paths']:
-            print(f"    - {figure_path}")
+        print("  - Candidate-region statistics:")
+        for stats_output in candidate_stats_outputs:
+            label = stats_output.get('label') or 'overall'
+            if stats_output.get('hard_stats_path'):
+                print(f"    - {label} hard best-solution stats: {stats_output['hard_stats_path']}")
+            if stats_output.get('weighted_stats_path'):
+                print(f"    - {label} rank-weighted stats: {stats_output['weighted_stats_path']}")
+
+        figure_count = sum(len(stats_output.get('figure_paths', [])) for stats_output in candidate_stats_outputs)
+        if figure_count:
+            print(f"  - Candidate-region statistic figures: {figure_count} files in {OPTIMIZATION_FIGURES_DIR}")
     print("="*80 + "\n")
 
 

@@ -38,6 +38,85 @@ def _find_metadata(optimization_results: Dict) -> Optional[Dict]:
     return None
 
 
+def _split_results_by_band(optimization_results: Dict) -> Dict[str, Dict]:
+    """Split per-band optimization results saved as subject::band keys."""
+    results_by_band = {}
+    for key, result in optimization_results.items():
+        key_text = str(key)
+        if "::" not in key_text:
+            continue
+        subject_id, band_name = key_text.rsplit("::", 1)
+        results_by_band.setdefault(band_name, {})[subject_id] = result
+    return results_by_band
+
+
+def _infer_band_name_from_results_path(results_path: str) -> Optional[str]:
+    filename = os.path.basename(results_path)
+    suffix = f"_{OPTIMIZATION_RESULTS_FILE}"
+    if filename.endswith(suffix):
+        return filename[:-len(suffix)]
+    return None
+
+
+def _save_candidate_region_stats(
+    optimization_results: Dict,
+    channel_names,
+    output_dir: str,
+    figures_dir: str,
+    prefix: Optional[str] = None,
+    label: Optional[str] = None
+) -> None:
+    output_label = f" ({label})" if label else ""
+    file_stem = f"{prefix}_" if prefix else ""
+    hard_figure_prefix = (
+        f"{prefix}_hard_best_solution_target_statistics"
+        if prefix else
+        "hard_best_solution_target_statistics"
+    )
+    weighted_figure_prefix = (
+        f"{prefix}_rank_weighted_target_statistics"
+        if prefix else
+        "rank_weighted_target_statistics"
+    )
+
+    stats_df = compute_candidate_region_selection_stats(
+        optimization_results,
+        channel_names
+    )
+    stats_path = os.path.join(
+        output_dir,
+        f"{file_stem}candidate_region_selection_stats.csv"
+    )
+    stats_df.to_csv(stats_path, index=False)
+    print(f"Saved hard best-solution candidate-region statistics{output_label}: {stats_path}")
+
+    weighted_stats_df = compute_candidate_region_weighted_rank_stats(
+        optimization_results,
+        channel_names
+    )
+    weighted_stats_path = os.path.join(
+        output_dir,
+        f"{file_stem}candidate_region_weighted_rank_stats.csv"
+    )
+    weighted_stats_df.to_csv(weighted_stats_path, index=False)
+    print(f"Saved rank-weighted candidate-region statistics{output_label}: {weighted_stats_path}")
+
+    figure_paths = plot_candidate_region_statistics(
+        stats_df,
+        channel_names,
+        figures_dir,
+        prefix=hard_figure_prefix
+    )
+    figure_paths.extend(plot_weighted_rank_region_statistics(
+        weighted_stats_df,
+        channel_names,
+        figures_dir,
+        prefix=weighted_figure_prefix
+    ))
+    for figure_path in figure_paths:
+        print(f"Saved candidate-region statistic figure{output_label}: {figure_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate optimization report from a saved results file."
@@ -111,43 +190,37 @@ def main() -> None:
         top_k=top_k
     )
 
-    stats_df = compute_candidate_region_selection_stats(
-        optimization_results,
-        channel_names
-    )
-    stats_path = os.path.join(
-        os.path.dirname(output_path),
-        "candidate_region_selection_stats.csv"
-    )
-    stats_df.to_csv(stats_path, index=False)
-    print(f"Saved hard best-solution candidate-region statistics: {stats_path}")
-
-    weighted_stats_df = compute_candidate_region_weighted_rank_stats(
-        optimization_results,
-        channel_names
-    )
-    weighted_stats_path = os.path.join(
-        os.path.dirname(output_path),
-        "candidate_region_weighted_rank_stats.csv"
-    )
-    weighted_stats_df.to_csv(weighted_stats_path, index=False)
-    print(f"Saved rank-weighted candidate-region statistics: {weighted_stats_path}")
-
+    output_dir = os.path.dirname(output_path)
     figures_dir = args.figures_dir if args.figures_dir is not None else OPTIMIZATION_FIGURES_DIR
-    figure_paths = plot_candidate_region_statistics(
-        stats_df,
+    _save_candidate_region_stats(
+        optimization_results,
         channel_names,
+        output_dir,
         figures_dir,
-        prefix="hard_best_solution_target_statistics"
+        label="combined across bands"
     )
-    figure_paths.extend(plot_weighted_rank_region_statistics(
-        weighted_stats_df,
-        channel_names,
-        figures_dir,
-        prefix="rank_weighted_target_statistics"
-    ))
-    for figure_path in figure_paths:
-        print(f"Saved candidate-region statistic figure: {figure_path}")
+
+    results_by_band = _split_results_by_band(optimization_results)
+    for band_name, band_results in results_by_band.items():
+        _save_candidate_region_stats(
+            band_results,
+            channel_names,
+            output_dir,
+            figures_dir,
+            prefix=band_name,
+            label=f"{band_name} band"
+        )
+
+    inferred_band_name = _infer_band_name_from_results_path(results_path)
+    if inferred_band_name is not None and not results_by_band:
+        _save_candidate_region_stats(
+            optimization_results,
+            channel_names,
+            output_dir,
+            figures_dir,
+            prefix=inferred_band_name,
+            label=f"{inferred_band_name} band"
+        )
 
 
 if __name__ == "__main__":
