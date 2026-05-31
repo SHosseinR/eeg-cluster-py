@@ -56,10 +56,20 @@ OPTIMIZATION_TOP_K = 5
 # Optional patient filtering before optimization.
 # Generate this ranking with plot_svm_margin_rejection_3d.py.
 PATIENT_REJECTION_PERCENT = 0
+PATIENT_REJECTION_PERCENT_BY_BAND = {
+    'delta': 0,
+    'alpha': 0,
+    'beta': 0,
+}
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
     OUTPUT_DIR,
     'data',
     'svm_margin_subject_ranking.csv'
+)
+PATIENT_REJECTION_RANKING_FILE_BY_BAND = os.path.join(
+    OUTPUT_DIR,
+    'data',
+    'svm_margin_subject_ranking_{band}.csv'
 )
 
 # Ranking pool for distance-based selection (grid + NSGA)

@@ -1,10 +1,10 @@
 """
-Analyze patient separability in all available network-metric spaces.
+Analyze patient separability in SVM-selected 3-metric spaces.
 
-This script does not select metrics. It uses all finite scalar network metrics
-available for each active band, trains one linear SVM per band, ranks patients
-by margin distance, and writes rejection sets for 0, 10, 20, 30, 40, and 50
-percent rejection. PCA is used only for the 3D visualization.
+This script discovers all finite scalar network metrics for each active band,
+uses SVM-RFE to select exactly 3 metrics per band, trains one linear SVM per
+band in that true 3D space, ranks patients by margin distance, and writes
+rejection sets for 0, 10, 20, 30, 40, and 50 percent rejection.
 """
 
 import argparse
@@ -15,7 +15,7 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
+from sklearn.feature_selection import RFE
 from sklearn.metrics import accuracy_score, balanced_accuracy_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -87,6 +87,36 @@ def _extract_group_points(network_measures, group_name, method, band, measures):
     return np.asarray(points, dtype=float), subject_ids
 
 
+def _select_three_metrics_svm_rfe(healthy_points, patient_points, candidate_measures, random_state=42):
+    X = np.vstack([healthy_points, patient_points])
+    y = np.array([0] * len(healthy_points) + [1] * len(patient_points), dtype=int)
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    estimator = SVC(
+        kernel='linear',
+        C=1.0,
+        class_weight='balanced',
+        random_state=random_state
+    )
+    selector = RFE(
+        estimator=estimator,
+        n_features_to_select=3,
+        step=1
+    )
+    selector.fit(X_scaled, y)
+
+    selected_indices = np.where(selector.support_)[0]
+    selected_indices = sorted(
+        selected_indices,
+        key=lambda idx: (selector.ranking_[idx], candidate_measures[idx])
+    )
+    selected_measures = [candidate_measures[idx] for idx in selected_indices]
+
+    return selected_measures, selector.ranking_
+
+
 def _fit_oriented_svm(healthy_points, patient_points, random_state=42):
     X = np.vstack([healthy_points, patient_points])
     y = np.array([0] * len(healthy_points) + [1] * len(patient_points), dtype=int)
@@ -95,7 +125,7 @@ def _fit_oriented_svm(healthy_points, patient_points, random_state=42):
     X_scaled = scaler.fit_transform(X)
     if X_scaled.shape[1] < 3:
         raise ValueError(
-            f"At least 3 finite metrics are required for PCA visualization; got {X_scaled.shape[1]}"
+            f"At least 3 finite metrics are required for 3D plotting; got {X_scaled.shape[1]}"
         )
 
     clf = SVC(
@@ -117,24 +147,15 @@ def _fit_oriented_svm(healthy_points, patient_points, random_state=42):
     signed_decision = (X_scaled @ coef + intercept).astype(float)
     signed_distance = signed_decision / (np.linalg.norm(coef) + 1e-12)
 
-    pca = PCA(n_components=3)
-    X_pca = pca.fit_transform(X_scaled)
-    pca_coef = pca.components_ @ coef
-    pca_intercept = float(intercept + pca.mean_ @ coef)
-
     return {
         'clf': clf,
         'scaler': scaler,
-        'pca': pca,
         'coef': coef,
         'intercept': intercept,
-        'pca_coef': pca_coef,
-        'pca_intercept': pca_intercept,
         'signed_decision': signed_decision,
         'signed_distance': signed_distance,
         'X': X,
         'X_scaled': X_scaled,
-        'X_pca': X_pca,
         'y': y,
     }
 
@@ -174,15 +195,19 @@ def _evaluate_cv_accuracy(X, y, random_state=42):
     return float(np.mean(accs)), float(np.mean(bal_accs)), n_splits
 
 
-def _pca_plane_z_grid(svm_info, x_grid, y_grid, plane_value):
-    """Return PC3 values where the full all-metric SVM decision=plane_value."""
-    coef = svm_info['pca_coef']
-    intercept = svm_info['pca_intercept']
+def _plane_z_grid(svm_info, x_grid, y_grid, plane_value):
+    """Return z values in original metric coordinates for oriented decision=plane_value."""
+    scaler = svm_info['scaler']
+    coef = svm_info['coef']
+    intercept = svm_info['intercept']
 
     if abs(coef[2]) < 1e-10:
         return None
 
-    return -(coef[0] * x_grid + coef[1] * y_grid + intercept - plane_value) / coef[2]
+    x_scaled = (x_grid - scaler.mean_[0]) / scaler.scale_[0]
+    y_scaled = (y_grid - scaler.mean_[1]) / scaler.scale_[1]
+    z_scaled = -(coef[0] * x_scaled + coef[1] * y_scaled + intercept - plane_value) / coef[2]
+    return z_scaled * scaler.scale_[2] + scaler.mean_[2]
 
 
 def _plot_band_margin_3d(
@@ -195,6 +220,9 @@ def _plot_band_margin_3d(
     svm_info,
     rejected_subjects,
     percent,
+    accuracy,
+    balanced_accuracy,
+    n_cv_folds,
     output_path,
 ):
     fig = plt.figure(figsize=(11, 8))
@@ -202,34 +230,30 @@ def _plot_band_margin_3d(
 
     patient_rejected = np.array([sid in rejected_subjects for sid in patient_ids], dtype=bool)
     patient_retained = ~patient_rejected
-    X_pca = svm_info['X_pca']
-    explained = svm_info['pca'].explained_variance_ratio_
-    healthy_plot = X_pca[:len(healthy_ids)]
-    patient_plot = X_pca[len(healthy_ids):]
 
     ax.scatter(
-        healthy_plot[:, 0], healthy_plot[:, 1], healthy_plot[:, 2],
+        healthy_points[:, 0], healthy_points[:, 1], healthy_points[:, 2],
         c='#2C7FB8', label=f'Healthy (n={len(healthy_ids)})',
         alpha=0.82, s=52, edgecolors='k', linewidths=0.35
     )
     if np.any(patient_retained):
         ax.scatter(
-            patient_plot[patient_retained, 0],
-            patient_plot[patient_retained, 1],
-            patient_plot[patient_retained, 2],
+            patient_points[patient_retained, 0],
+            patient_points[patient_retained, 1],
+            patient_points[patient_retained, 2],
             c='#F2C94C', label=f'Retained patients (n={int(np.sum(patient_retained))})',
             alpha=0.92, s=62, edgecolors='k', linewidths=0.4
         )
     if np.any(patient_rejected):
         ax.scatter(
-            patient_plot[patient_rejected, 0],
-            patient_plot[patient_rejected, 1],
-            patient_plot[patient_rejected, 2],
+            patient_points[patient_rejected, 0],
+            patient_points[patient_rejected, 1],
+            patient_points[patient_rejected, 2],
             c='#D62728', label=f'Rejected patients (n={int(np.sum(patient_rejected))})',
             alpha=0.95, s=76, marker='^', edgecolors='k', linewidths=0.55
         )
 
-    all_points = X_pca
+    all_points = np.vstack([healthy_points, patient_points])
     x_min, x_max = np.min(all_points[:, 0]), np.max(all_points[:, 0])
     y_min, y_max = np.min(all_points[:, 1]), np.max(all_points[:, 1])
     x_pad = (x_max - x_min) * 0.08 or 1.0
@@ -244,16 +268,16 @@ def _plot_band_margin_3d(
         (1.0, '#3A7D44', 0.10, 'Patient margin'),
         (-1.0, '#7A8FA6', 0.10, 'Healthy margin'),
     ]:
-        zz = _pca_plane_z_grid(svm_info, xx, yy, plane_value)
+        zz = _plane_z_grid(svm_info, xx, yy, plane_value)
         if zz is not None:
             ax.plot_surface(xx, yy, zz, color=color, alpha=alpha, linewidth=0, label=label)
 
-    ax.set_xlabel(f'PC1 ({explained[0] * 100:.1f}% var)')
-    ax.set_ylabel(f'PC2 ({explained[1] * 100:.1f}% var)')
-    ax.set_zlabel(f'PC3 ({explained[2] * 100:.1f}% var)')
+    ax.set_xlabel(measures[0])
+    ax.set_ylabel(measures[1])
+    ax.set_zlabel(measures[2])
     ax.set_title(
-        f'{band.upper()} All-Metric SVM Margin Separation | rejected={percent}%\n'
-        f'SVM trained on {len(measures)} metrics; PCA shown only for visualization',
+        f'{band.upper()} 3-Metric SVM Margin Separation | rejected={percent}%\n'
+        f'Accuracy={accuracy:.3f}, Balanced accuracy={balanced_accuracy:.3f}, CV folds={n_cv_folds}',
         fontsize=12,
         fontweight='bold'
     )
@@ -313,25 +337,117 @@ def _plot_aggregate_ranking(ranking_df, percentages, output_path):
     print(f'Saved aggregate ranking plot: {output_path}')
 
 
+def _plot_band_ranking(band, ranking_df, percentages, output_path):
+    plot_df = ranking_df.sort_values('rank', ascending=True).copy()
+    x = np.arange(len(plot_df))
+
+    fig, ax = plt.subplots(figsize=(max(12, len(plot_df) * 0.38), 6))
+    ax.bar(
+        x,
+        plot_df['margin_percentile'],
+        color='#F2C94C',
+        edgecolor='black',
+        linewidth=0.4
+    )
+
+    n_patients = len(plot_df)
+    for percent in percentages:
+        if percent <= 0:
+            continue
+        reject_n = int(math.ceil(percent / 100.0 * n_patients))
+        if reject_n <= 0 or reject_n > n_patients:
+            continue
+        ax.axvline(reject_n - 0.5, color='#D62728', linestyle='--', linewidth=1.0)
+        ax.text(
+            reject_n - 0.5,
+            1.02,
+            f'{percent}%',
+            rotation=90,
+            ha='right',
+            va='bottom',
+            color='#D62728',
+            fontsize=9
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_df['subject_id'], rotation=75, ha='right', fontsize=8)
+    ax.set_ylabel('Margin percentile (higher = clearer patient-side separation)')
+    ax.set_title(f'{band.upper()} Patient Ranking by 3-Metric SVM Margin', fontsize=14, fontweight='bold')
+    ax.grid(axis='y', alpha=0.25)
+    ax.set_ylim(0, 1.08)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Saved {band} ranking plot: {output_path}')
+
+
+def _plot_band_accuracy_by_rejection(band, accuracy_df, output_path):
+    plot_df = (
+        accuracy_df[accuracy_df['band'] == band]
+        .sort_values('rejection_percent')
+        .copy()
+    )
+    if plot_df.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(
+        plot_df['rejection_percent'],
+        plot_df['accuracy'],
+        marker='o',
+        linewidth=2,
+        label='Accuracy'
+    )
+    ax.plot(
+        plot_df['rejection_percent'],
+        plot_df['balanced_accuracy'],
+        marker='s',
+        linewidth=2,
+        label='Balanced accuracy'
+    )
+    ax.set_xlabel('Patient rejection (%)')
+    ax.set_ylabel('Cross-validated score')
+    ax.set_title(f'{band.upper()} 3-Metric SVM Accuracy by Rejection Rate', fontsize=13, fontweight='bold')
+    ax.set_xticks(plot_df['rejection_percent'])
+    ax.set_ylim(0, 1)
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc='best')
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Saved {band} accuracy plot: {output_path}')
+
+
 def analyze_svm_margin_rejection(network_measures, method, output_dir, figures_dir, percentages):
     band_results = {}
     patient_rows_by_band = []
+    selected_metric_rows = []
+    rejection_rows = []
     accuracy_rows = []
+    ranking_paths = {}
+    ranking_plot_paths = {}
+    accuracy_plot_paths = {}
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(figures_dir, exist_ok=True)
 
     for band in FREQUENCY_BANDS.keys():
-        measures = _discover_all_finite_measures(network_measures, method, band)
-        if len(measures) < 3:
+        candidate_measures = _discover_all_finite_measures(network_measures, method, band)
+        if len(candidate_measures) < 3:
             raise ValueError(
-                f"Band '{band}' must have at least 3 finite scalar metrics for all-metric SVM/PCA plotting. "
-                f"Got {len(measures)}: {measures}"
+                f"Band '{band}' must have at least 3 finite scalar metrics for SVM-RFE. "
+                f"Got {len(candidate_measures)}: {candidate_measures}"
             )
-        print(f"Band {band}: using {len(measures)} all-metric features")
 
-        healthy_points, healthy_ids = _extract_group_points(
-            network_measures, 'Healthy', method, band, measures
+        all_healthy_points, healthy_ids = _extract_group_points(
+            network_measures, 'Healthy', method, band, candidate_measures
         )
-        patient_points, patient_ids = _extract_group_points(
-            network_measures, 'Patient', method, band, measures
+        all_patient_points, patient_ids = _extract_group_points(
+            network_measures, 'Patient', method, band, candidate_measures
         )
         if len(healthy_ids) < 2 or len(patient_ids) < 2:
             raise ValueError(
@@ -339,98 +455,85 @@ def analyze_svm_margin_rejection(network_measures, method, output_dir, figures_d
                 f"Healthy={len(healthy_ids)}, Patient={len(patient_ids)}"
             )
 
+        selected_measures, rfe_ranking = _select_three_metrics_svm_rfe(
+            all_healthy_points,
+            all_patient_points,
+            candidate_measures
+        )
+        print(
+            f"Band {band}: selected 3 of {len(candidate_measures)} candidate metrics: "
+            f"{selected_measures}"
+        )
+
+        healthy_points, healthy_ids = _extract_group_points(
+            network_measures, 'Healthy', method, band, selected_measures
+        )
+        patient_points, patient_ids = _extract_group_points(
+            network_measures, 'Patient', method, band, selected_measures
+        )
+
         svm_info = _fit_oriented_svm(healthy_points, patient_points)
         patient_distances = svm_info['signed_distance'][len(healthy_ids):]
         patient_percentiles = _patient_percentile_ranks(patient_distances)
 
-        for subject_id, distance, percentile in zip(patient_ids, patient_distances, patient_percentiles):
-            patient_rows_by_band.append({
-                'subject_id': subject_id,
-                'band': band,
-                'signed_margin_distance': float(distance),
-                'margin_percentile': float(percentile),
-                'metric_count': len(measures),
-                'metrics': ', '.join(measures),
-            })
+        ranking_df = pd.DataFrame({
+            'subject_id': patient_ids,
+            'band': band,
+            'signed_margin_distance': patient_distances.astype(float),
+            'margin_percentile': patient_percentiles.astype(float),
+            'selected_metrics': ', '.join(selected_measures),
+            'metric_count': len(selected_measures),
+            'candidate_metric_count': len(candidate_measures),
+        })
+        ranking_df = (
+            ranking_df
+            .sort_values(
+                ['margin_percentile', 'signed_margin_distance', 'subject_id'],
+                ascending=[True, True, True]
+            )
+            .reset_index(drop=True)
+        )
+        ranking_df['rank'] = np.arange(1, len(ranking_df) + 1)
+
+        for row in ranking_df.to_dict('records'):
+            patient_rows_by_band.append(row)
+
+        selected_metric_rows.append({
+            'band': band,
+            'selected_metric_1': selected_measures[0],
+            'selected_metric_2': selected_measures[1],
+            'selected_metric_3': selected_measures[2],
+            'selected_metrics': ', '.join(selected_measures),
+            'candidate_metric_count': len(candidate_measures),
+            'candidate_metrics': ', '.join(candidate_measures),
+            'rfe_ranking': ';'.join(
+                f"{measure}:{int(rank)}"
+                for measure, rank in zip(candidate_measures, rfe_ranking)
+            ),
+        })
 
         band_results[band] = {
-            'measures': measures,
+            'measures': selected_measures,
+            'candidate_measures': candidate_measures,
             'healthy_points': healthy_points,
             'patient_points': patient_points,
             'healthy_ids': healthy_ids,
             'patient_ids': patient_ids,
             'svm_info': svm_info,
+            'ranking_df': ranking_df,
         }
 
-    patient_band_df = pd.DataFrame(patient_rows_by_band)
-    ranking_df = (
-        patient_band_df
-        .groupby('subject_id')
-        .agg(
-            aggregate_margin_percentile=('margin_percentile', 'mean'),
-            min_signed_margin_distance=('signed_margin_distance', 'min'),
-            mean_signed_margin_distance=('signed_margin_distance', 'mean'),
-            n_bands=('band', 'count')
-        )
-        .reset_index()
-        .sort_values(
-            ['aggregate_margin_percentile', 'min_signed_margin_distance', 'subject_id'],
-            ascending=[True, True, True]
-        )
-        .reset_index(drop=True)
-    )
-    ranking_df['aggregate_rank'] = np.arange(1, len(ranking_df) + 1)
+    for band, result in band_results.items():
+        ranking_df = result['ranking_df'].copy()
+        n_patients = len(ranking_df)
 
-    for _, band_row in patient_band_df.iterrows():
-        col_name = f"{band_row['band']}_signed_margin_distance"
-        ranking_df.loc[
-            ranking_df['subject_id'] == band_row['subject_id'],
-            col_name
-        ] = band_row['signed_margin_distance']
-        pct_col_name = f"{band_row['band']}_margin_percentile"
-        ranking_df.loc[
-            ranking_df['subject_id'] == band_row['subject_id'],
-            pct_col_name
-        ] = band_row['margin_percentile']
-        metric_count_col = f"{band_row['band']}_metric_count"
-        ranking_df.loc[
-            ranking_df['subject_id'] == band_row['subject_id'],
-            metric_count_col
-        ] = band_row['metric_count']
-        metrics_col = f"{band_row['band']}_metrics"
-        ranking_df.loc[
-            ranking_df['subject_id'] == band_row['subject_id'],
-            metrics_col
-        ] = band_row['metrics']
+        for percent in percentages:
+            reject_n = int(math.ceil(float(percent) / 100.0 * n_patients))
+            reject_n = min(max(reject_n, 0), n_patients)
+            rejected = ranking_df.head(reject_n)['subject_id'].tolist()
+            retained = ranking_df.iloc[reject_n:]['subject_id'].tolist()
+            ranking_df[f'rejected_at_{int(percent)}'] = ranking_df['subject_id'].isin(rejected)
 
-    rejection_rows = []
-    n_patients = len(ranking_df)
-    band_metric_counts = ';'.join(
-        f"{band}:{len(result['measures'])}"
-        for band, result in band_results.items()
-    )
-    band_metric_lists = ';'.join(
-        f"{band}:{', '.join(result['measures'])}"
-        for band, result in band_results.items()
-    )
-    for percent in percentages:
-        reject_n = int(math.ceil(float(percent) / 100.0 * n_patients))
-        reject_n = min(max(reject_n, 0), n_patients)
-        rejected = ranking_df.head(reject_n)['subject_id'].tolist()
-        retained = ranking_df.iloc[reject_n:]['subject_id'].tolist()
-        ranking_df[f'rejected_at_{int(percent)}'] = ranking_df['subject_id'].isin(rejected)
-        rejection_rows.append({
-            'rejection_percent': int(percent),
-            'n_patients_total': n_patients,
-            'n_rejected': reject_n,
-            'n_retained': len(retained),
-            'rejected_subject_ids': ';'.join(rejected),
-            'retained_subject_ids': ';'.join(retained),
-            'band_metric_counts': band_metric_counts,
-            'band_metric_lists': band_metric_lists,
-        })
-
-        for band, result in band_results.items():
             retained_mask = np.array([sid not in rejected for sid in result['patient_ids']], dtype=bool)
             X_eval = np.vstack([result['healthy_points'], result['patient_points'][retained_mask]])
             y_eval = np.array(
@@ -438,9 +541,20 @@ def analyze_svm_margin_rejection(network_measures, method, output_dir, figures_d
                 dtype=int
             )
             acc, bal_acc, n_folds = _evaluate_cv_accuracy(X_eval, y_eval)
-            accuracy_rows.append({
-                'rejection_percent': int(percent),
+
+            rejection_rows.append({
                 'band': band,
+                'rejection_percent': int(percent),
+                'n_patients_total': n_patients,
+                'n_rejected': reject_n,
+                'n_retained': len(retained),
+                'selected_metrics': ', '.join(result['measures']),
+                'rejected_subject_ids': ';'.join(rejected),
+                'retained_subject_ids': ';'.join(retained),
+            })
+            accuracy_rows.append({
+                'band': band,
+                'rejection_percent': int(percent),
                 'metrics': ', '.join(result['measures']),
                 'metric_count': len(result['measures']),
                 'accuracy': acc,
@@ -467,60 +581,113 @@ def analyze_svm_margin_rejection(network_measures, method, output_dir, figures_d
                 svm_info=result['svm_info'],
                 rejected_subjects=set(rejected),
                 percent=int(percent),
+                accuracy=acc,
+                balanced_accuracy=bal_acc,
+                n_cv_folds=n_folds,
                 output_path=plot_path,
             )
 
+        ranking_path = os.path.join(output_dir, f'svm_margin_subject_ranking_{band}.csv')
+        ranking_plot_path = os.path.join(
+            figures_dir,
+            band,
+            f'svm_margin_{band}_patient_ranking.png'
+        )
+        ranking_df.to_csv(ranking_path, index=False)
+        _plot_band_ranking(band, ranking_df, percentages, ranking_plot_path)
+        ranking_paths[band] = ranking_path
+        ranking_plot_paths[band] = ranking_plot_path
+        band_results[band]['ranking_df'] = ranking_df
+
     accuracy_df = pd.DataFrame(accuracy_rows)
-    if not accuracy_df.empty:
-        mean_rows = []
-        for percent, group in accuracy_df.groupby('rejection_percent'):
-            mean_rows.append({
-                'rejection_percent': int(percent),
-                'band': 'mean_across_bands',
-                'metrics': 'N/A',
-                'metric_count': int(group['metric_count'].min()),
-                'accuracy': float(group['accuracy'].mean()),
-                'balanced_accuracy': float(group['balanced_accuracy'].mean()),
-                'n_cv_folds': int(group['n_cv_folds'].min()),
-                'n_healthy': int(group['n_healthy'].min()),
-                'n_patients_retained': int(group['n_patients_retained'].min()),
-                'n_patients_rejected': int(group['n_patients_rejected'].max()),
-                'rejected_subject_ids': group['rejected_subject_ids'].iloc[0],
-            })
-        accuracy_df = pd.concat([accuracy_df, pd.DataFrame(mean_rows)], ignore_index=True)
+    rejection_df = pd.DataFrame(rejection_rows)
+    selected_metrics_df = pd.DataFrame(selected_metric_rows)
+    patient_band_df = pd.DataFrame(patient_rows_by_band)
+    aggregate_df = (
+        patient_band_df
+        .groupby('subject_id')
+        .agg(
+            aggregate_margin_percentile=('margin_percentile', 'mean'),
+            min_signed_margin_distance=('signed_margin_distance', 'min'),
+            mean_signed_margin_distance=('signed_margin_distance', 'mean'),
+            n_bands=('band', 'count')
+        )
+        .reset_index()
+        .sort_values(
+            ['aggregate_margin_percentile', 'min_signed_margin_distance', 'subject_id'],
+            ascending=[True, True, True]
+        )
+        .reset_index(drop=True)
+    )
+    aggregate_df['aggregate_rank'] = np.arange(1, len(aggregate_df) + 1)
 
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(figures_dir, exist_ok=True)
-    ranking_path = os.path.join(output_dir, 'svm_margin_subject_ranking.csv')
-    rejection_path = os.path.join(output_dir, 'svm_margin_rejection_sets.csv')
+    for band, result in band_results.items():
+        for _, row in result['ranking_df'].iterrows():
+            aggregate_df.loc[
+                aggregate_df['subject_id'] == row['subject_id'],
+                f'{band}_rank'
+            ] = row['rank']
+            aggregate_df.loc[
+                aggregate_df['subject_id'] == row['subject_id'],
+                f'{band}_margin_percentile'
+            ] = row['margin_percentile']
+            aggregate_df.loc[
+                aggregate_df['subject_id'] == row['subject_id'],
+                f'{band}_signed_margin_distance'
+            ] = row['signed_margin_distance']
+
+    for band in band_results:
+        accuracy_plot_path = os.path.join(
+            figures_dir,
+            band,
+            f'svm_margin_{band}_accuracy_by_rejection.png'
+        )
+        _plot_band_accuracy_by_rejection(band, accuracy_df, accuracy_plot_path)
+        accuracy_plot_paths[band] = accuracy_plot_path
+
+    selected_metrics_path = os.path.join(output_dir, 'svm_margin_selected_metrics.csv')
+    aggregate_ranking_path = os.path.join(output_dir, 'svm_margin_subject_ranking.csv')
+    aggregate_ranking_reference_path = os.path.join(output_dir, 'svm_margin_subject_ranking_aggregate.csv')
+    rejection_path = os.path.join(output_dir, 'svm_margin_rejection_sets_by_band.csv')
+    legacy_rejection_path = os.path.join(output_dir, 'svm_margin_rejection_sets.csv')
     accuracy_path = os.path.join(output_dir, 'svm_margin_accuracy_by_rejection.csv')
-    ranking_plot_path = os.path.join(figures_dir, 'svm_margin_patient_ranking.png')
+    aggregate_ranking_plot_path = os.path.join(figures_dir, 'svm_margin_patient_ranking.png')
 
-    ranking_df.to_csv(ranking_path, index=False)
-    pd.DataFrame(rejection_rows).to_csv(rejection_path, index=False)
+    selected_metrics_df.to_csv(selected_metrics_path, index=False)
+    aggregate_df.to_csv(aggregate_ranking_path, index=False)
+    aggregate_df.to_csv(aggregate_ranking_reference_path, index=False)
+    rejection_df.to_csv(rejection_path, index=False)
+    rejection_df.to_csv(legacy_rejection_path, index=False)
     accuracy_df.to_csv(accuracy_path, index=False)
-    _plot_aggregate_ranking(ranking_df, percentages, ranking_plot_path)
+    _plot_aggregate_ranking(aggregate_df, percentages, aggregate_ranking_plot_path)
 
     print("\nSaved SVM margin rejection outputs:")
-    print(f"  Ranking: {ranking_path}")
-    print(f"  Rejection sets: {rejection_path}")
+    print(f"  Selected metrics: {selected_metrics_path}")
+    print(f"  Per-band rankings: {ranking_paths}")
+    print(f"  Aggregate ranking reference: {aggregate_ranking_reference_path}")
+    print(f"  Rejection sets by band: {rejection_path}")
     print(f"  Accuracy: {accuracy_path}")
-    print(f"  Ranking plot: {ranking_plot_path}")
+    print(f"  Per-band ranking plots: {ranking_plot_paths}")
+    print(f"  Per-band accuracy plots: {accuracy_plot_paths}")
 
     return {
-        'ranking_df': ranking_df,
-        'rejection_df': pd.DataFrame(rejection_rows),
+        'ranking_df': aggregate_df,
+        'ranking_paths': ranking_paths,
+        'selected_metrics_df': selected_metrics_df,
+        'rejection_df': rejection_df,
         'accuracy_df': accuracy_df,
-        'ranking_path': ranking_path,
+        'selected_metrics_path': selected_metrics_path,
+        'ranking_path': aggregate_ranking_path,
+        'ranking_reference_path': aggregate_ranking_reference_path,
         'rejection_path': rejection_path,
         'accuracy_path': accuracy_path,
-        'ranking_plot_path': ranking_plot_path,
+        'ranking_plot_path': aggregate_ranking_plot_path,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Train all-metric linear SVM margins and rank patients for rejection.'
+        description='Select 3 metrics with SVM-RFE, train linear SVM margins, and rank patients for rejection.'
     )
     parser.add_argument(
         '--network-measures-path',

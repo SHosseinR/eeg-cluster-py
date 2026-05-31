@@ -18,7 +18,8 @@ from optimization_config import (
     OPTIMIZATION_RESULTS_FILE, OPTIMIZATION_FIGURES_DIR, OPTIMIZATION_N_JOBS,
     OPTIMIZATION_TOP_K, OPTIMIZATION_MODE,
     OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND,
-    PATIENT_REJECTION_PERCENT, PATIENT_REJECTION_RANKING_FILE
+    PATIENT_REJECTION_PERCENT, PATIENT_REJECTION_RANKING_FILE,
+    PATIENT_REJECTION_PERCENT_BY_BAND, PATIENT_REJECTION_RANKING_FILE_BY_BAND
 )
 
 # Import optimization modules
@@ -130,28 +131,75 @@ def _get_measures_for_band(band_name: str) -> List[str]:
     return OPTIMIZATION_MEASURES
 
 
-def apply_patient_rejection_filter(connectivity_matrices, network_measures, subject_data):
+def _format_rejection_ranking_path(path_template, band_name=None):
+    return path_template.format(
+        OUTPUT_DIR=OUTPUT_DIR,
+        band=band_name,
+        band_name=band_name
+    )
+
+
+def _filter_to_retained_patients(connectivity_matrices, network_measures, subject_data, retained_ids):
+    retained_ids = set(retained_ids)
+    network_measures = dict(network_measures)
+    connectivity_matrices = dict(connectivity_matrices)
+    network_measures['Patient'] = {
+        sid: data
+        for sid, data in network_measures.get('Patient', {}).items()
+        if sid in retained_ids
+    }
+    connectivity_matrices['Patient'] = {
+        sid: data
+        for sid, data in connectivity_matrices.get('Patient', {}).items()
+        if sid in retained_ids
+    }
+    subject_data = {
+        sid: data
+        for sid, data in subject_data.items()
+        if data.get('group') != 'Patient' or sid in retained_ids
+    }
+    return connectivity_matrices, network_measures, subject_data
+
+
+def _get_patient_rejection_percent(band_name=None):
+    if band_name is not None:
+        return float(PATIENT_REJECTION_PERCENT_BY_BAND.get(band_name, 0))
+    return float(PATIENT_REJECTION_PERCENT)
+
+
+def apply_patient_rejection_filter(connectivity_matrices, network_measures, subject_data, band_name=None):
     """Filter patient dictionaries using the SVM-margin rejection ranking."""
-    rejection_percent = float(PATIENT_REJECTION_PERCENT)
+    rejection_percent = _get_patient_rejection_percent(band_name)
+    filter_label = f"{band_name} band" if band_name else "global"
     if rejection_percent <= 0:
-        print("\nPatient rejection filter: disabled (PATIENT_REJECTION_PERCENT=0)")
+        print(f"\nPatient rejection filter disabled for {filter_label} (rejection percent=0)")
         return connectivity_matrices, network_measures, subject_data
 
     if rejection_percent < 0 or rejection_percent > 100:
         raise ValueError(
-            f"PATIENT_REJECTION_PERCENT must be between 0 and 100; got {rejection_percent}"
+            f"Patient rejection percent must be between 0 and 100; got {rejection_percent}"
         )
 
-    ranking_path = PATIENT_REJECTION_RANKING_FILE.format(OUTPUT_DIR=OUTPUT_DIR)
+    if band_name is None:
+        ranking_path = _format_rejection_ranking_path(PATIENT_REJECTION_RANKING_FILE)
+        required_columns = {'subject_id', 'aggregate_rank', 'aggregate_margin_percentile'}
+        sort_columns = ['aggregate_rank', 'aggregate_margin_percentile', 'subject_id']
+    else:
+        ranking_path = _format_rejection_ranking_path(
+            PATIENT_REJECTION_RANKING_FILE_BY_BAND,
+            band_name=band_name
+        )
+        required_columns = {'subject_id', 'rank', 'margin_percentile'}
+        sort_columns = ['rank', 'margin_percentile', 'subject_id']
+
     if not os.path.exists(ranking_path):
         raise FileNotFoundError(
             "Patient rejection ranking file not found: "
             f"{ranking_path}\nRun plot_svm_margin_rejection_3d.py first, "
-            "or set PATIENT_REJECTION_PERCENT = 0."
+            "or set the corresponding rejection percent to 0."
         )
 
     ranking_df = pd.read_csv(ranking_path)
-    required_columns = {'subject_id', 'aggregate_rank', 'aggregate_margin_percentile'}
     missing_columns = required_columns.difference(ranking_df.columns)
     if missing_columns:
         raise ValueError(
@@ -159,8 +207,8 @@ def apply_patient_rejection_filter(connectivity_matrices, network_measures, subj
         )
 
     ranking_df = ranking_df.sort_values(
-        by=['aggregate_rank', 'aggregate_margin_percentile', 'subject_id'],
-        ascending=[True, True, True]
+        by=sort_columns,
+        ascending=[True] * len(sort_columns)
     ).reset_index(drop=True)
 
     available_patient_ids = set(network_measures.get('Patient', {}).keys())
@@ -188,6 +236,7 @@ def apply_patient_rejection_filter(connectivity_matrices, network_measures, subj
     print("\n" + "=" * 80)
     print("PATIENT REJECTION FILTER")
     print("=" * 80)
+    print(f"Scope: {filter_label}")
     print(f"Ranking file: {ranking_path}")
     print(f"Configured rejection percent: {rejection_percent:g}%")
     print(f"Rejected patients: {len(rejected_ids)}/{len(ranked_patient_ids)}")
@@ -195,25 +244,12 @@ def apply_patient_rejection_filter(connectivity_matrices, network_measures, subj
     print(f"Rejected IDs: {sorted(rejected_ids)}")
     print(f"Retained IDs: {retained_ids}")
 
-    network_measures = dict(network_measures)
-    connectivity_matrices = dict(connectivity_matrices)
-    network_measures['Patient'] = {
-        sid: data
-        for sid, data in network_measures.get('Patient', {}).items()
-        if sid in retained_ids
-    }
-    connectivity_matrices['Patient'] = {
-        sid: data
-        for sid, data in connectivity_matrices.get('Patient', {}).items()
-        if sid in retained_ids
-    }
-    subject_data = {
-        sid: data
-        for sid, data in subject_data.items()
-        if data.get('group') != 'Patient' or sid in retained_ids
-    }
-
-    return connectivity_matrices, network_measures, subject_data
+    return _filter_to_retained_patients(
+        connectivity_matrices,
+        network_measures,
+        subject_data,
+        retained_ids
+    )
 
 
 def save_candidate_region_selection_stats(
@@ -372,15 +408,32 @@ def main():
         print("  - network_measures.npy")
         return
 
-    try:
-        connectivity_matrices, network_measures, subject_data = apply_patient_rejection_filter(
-            connectivity_matrices,
-            network_measures,
-            subject_data
-        )
-    except Exception as e:
-        print(f"\nERROR applying patient rejection filter: {str(e)}")
-        return
+    if not OPTIMIZATION_PER_BAND:
+        try:
+            connectivity_matrices, network_measures, subject_data = apply_patient_rejection_filter(
+                connectivity_matrices,
+                network_measures,
+                subject_data
+            )
+        except Exception as e:
+            print(f"\nERROR applying patient rejection filter: {str(e)}")
+            return
+    else:
+        configured_band_rejections = {
+            band_name: percent
+            for band_name, percent in PATIENT_REJECTION_PERCENT_BY_BAND.items()
+            if float(percent) > 0
+        }
+        if configured_band_rejections:
+            print("\nPer-band patient rejection configured:")
+            for band_name in FREQUENCY_BANDS.keys():
+                percent = float(PATIENT_REJECTION_PERCENT_BY_BAND.get(band_name, 0))
+                print(f"  - {band_name}: {percent:g}%")
+        elif float(PATIENT_REJECTION_PERCENT) > 0:
+            print(
+                "\nPATIENT_REJECTION_PERCENT is ignored in per-band mode when "
+                "PATIENT_REJECTION_PERCENT_BY_BAND is all zero."
+            )
     
     # Verify requirements
     try:
@@ -409,10 +462,21 @@ def main():
             print(f"Measures: {band_measures}")
             print("-"*80)
 
+            try:
+                band_connectivity_matrices, band_network_measures, band_subject_data = apply_patient_rejection_filter(
+                    connectivity_matrices,
+                    network_measures,
+                    subject_data,
+                    band_name=band_name
+                )
+            except Exception as e:
+                print(f"\nERROR applying patient rejection filter for band {band_name}: {str(e)}")
+                return
+
             optimizer = create_optimizer_from_config(
-                connectivity_matrices=connectivity_matrices,
-                network_measures=network_measures,
-                subject_data=subject_data,
+                connectivity_matrices=band_connectivity_matrices,
+                network_measures=band_network_measures,
+                subject_data=band_subject_data,
                 frequency_bands=FREQUENCY_BANDS,
                 channel_names=channel_names,
                 selected_method=SELECTED_METHOD,
