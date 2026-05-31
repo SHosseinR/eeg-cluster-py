@@ -197,7 +197,7 @@ def plot_candidate_region_selection_counts(candidate_stats_df,
     fig, ax = plt.subplots(figsize=figsize)
     bars = ax.bar(x_pos, counts, color=colors, edgecolor='black', linewidth=0.6, alpha=0.92)
 
-    ax.set_title('Final Candidate Stimulation Targets', fontsize=15, fontweight='bold')
+    ax.set_title('Hard Best-Solution Target Counts', fontsize=15, fontweight='bold')
     ax.set_xlabel('Electrode')
     ax.set_ylabel('Selection count')
     ax.set_xticks(x_pos)
@@ -259,7 +259,7 @@ def plot_candidate_region_symmetric_comparison(candidate_stats_df,
     if symmetric_rows.empty:
         first_row = candidate_stats_df.iloc[0]
         ax.axis('off')
-        ax.set_title('Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
+        ax.set_title('Hard Best-Solution: Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
         ax.text(
             0.5,
             0.58,
@@ -286,7 +286,7 @@ def plot_candidate_region_symmetric_comparison(candidate_stats_df,
 
         bars = ax.bar(labels, counts, color=['#C73E3A', '#F0A202'],
                       edgecolor='black', alpha=0.93)
-        ax.set_title('Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
+        ax.set_title('Hard Best-Solution: Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
         ax.set_ylabel('Selection count')
         ax.grid(axis='y', alpha=0.25)
 
@@ -363,7 +363,7 @@ def plot_candidate_region_pairwise_superiority(candidate_stats_df,
     ax.axvline(threshold, color='#C73E3A', linestyle='--',
                linewidth=1.5, label='FDR p = 0.05')
     top_region = str(plot_df['top_region'].iloc[0])
-    ax.set_title(f'Pairwise Superiority: {top_region} vs Other Electrodes',
+    ax.set_title(f'Hard Best-Solution Pairwise Superiority: {top_region} vs Other Electrodes',
                  fontsize=14, fontweight='bold')
     ax.set_xlabel('-log10(FDR-corrected p-value)')
     ax.set_ylabel('Comparison electrode')
@@ -443,7 +443,7 @@ def plot_candidate_region_statistics_dashboard(candidate_stats_df,
         linespacing=1.5,
         bbox=dict(boxstyle='round', facecolor='#F7F7F7', edgecolor='#BDBDBD')
     )
-    ax_summary.set_title('Final Target Statistics Summary', fontsize=13, fontweight='bold')
+    ax_summary.set_title('Hard Best-Solution Statistics Summary', fontsize=13, fontweight='bold')
 
     top_order = np.argsort(counts)[::-1][:min(8, len(channel_names))]
     top_order = top_order[::-1]
@@ -467,7 +467,7 @@ def plot_candidate_region_statistics_dashboard(candidate_stats_df,
     ax_pvalues.set_xlabel('-log10(FDR-corrected p-value)')
     ax_pvalues.grid(axis='x', alpha=0.25)
 
-    fig.suptitle('Final Candidate Stimulation Target Statistics',
+    fig.suptitle('Hard Best-Solution Target Statistics',
                  fontsize=16, fontweight='bold')
     plt.tight_layout(rect=(0, 0, 1, 0.96))
 
@@ -504,6 +504,358 @@ def plot_candidate_region_statistics(candidate_stats_df,
             plot_candidate_region_pairwise_superiority,
             os.path.join(output_dir, f'{prefix}_pairwise_superiority.png'),
             (candidate_stats_df,)
+        )
+    ]
+
+    created = []
+    for plot_func, save_path, args in figure_specs:
+        fig = plot_func(*args, save_path=save_path)
+        if fig is not None:
+            created.append(save_path)
+
+    return created
+
+
+def _weighted_region_counts(weighted_stats_df, channel_names):
+    """Rebuild weighted electrode sums from weighted pairwise stats."""
+    weights = np.zeros(len(channel_names), dtype=float)
+    if weighted_stats_df is None or weighted_stats_df.empty:
+        return weights, None, None
+
+    first_row = weighted_stats_df.iloc[0]
+    top_node = int(first_row['top_node'])
+    weights[top_node] = float(first_row['top_weighted_count'])
+    symmetric_node = None
+
+    for _, row in weighted_stats_df.iterrows():
+        comparison_node = int(row['comparison_node'])
+        weights[comparison_node] = float(row['comparison_weighted_count'])
+        if row.get('comparison_relation') == 'symmetric':
+            symmetric_node = comparison_node
+
+    return weights, top_node, symmetric_node
+
+
+def plot_weighted_rank_region_scores(weighted_stats_df,
+                                     channel_names: List[str],
+                                     save_path: str = None,
+                                     figsize: Tuple = (13, 6)):
+    """Plot rank-weighted electrode scores from top-k ranked solutions."""
+    weights, top_node, symmetric_node = _weighted_region_counts(weighted_stats_df, channel_names)
+    if top_node is None:
+        print("No weighted-rank candidate-region statistics to plot")
+        return None
+
+    n_units = int(weighted_stats_df.iloc[0]['n_optimization_units'])
+    x_pos = np.arange(len(channel_names))
+    colors = ['#648FFF'] * len(channel_names)
+    colors[top_node] = '#DC267F'
+    if symmetric_node is not None:
+        colors[symmetric_node] = '#FE6100'
+
+    fig, ax = plt.subplots(figsize=figsize)
+    bars = ax.bar(x_pos, weights, color=colors, edgecolor='black', linewidth=0.6, alpha=0.92)
+    ax.set_title('Rank-Weighted Target Scores', fontsize=15, fontweight='bold')
+    ax.set_xlabel('Electrode')
+    ax.set_ylabel('Weighted score sum')
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(channel_names, rotation=45, ha='right')
+    ax.grid(axis='y', alpha=0.25)
+
+    for idx, bar in enumerate(bars):
+        height = bar.get_height()
+        if height > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                f"{height:.2f}",
+                ha='center',
+                va='bottom',
+                fontsize=8,
+                fontweight='bold' if idx == top_node else 'normal'
+            )
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color='#DC267F', label='Top weighted target'),
+        plt.Rectangle((0, 0), 1, 1, color='#FE6100', label='Symmetric homolog'),
+        plt.Rectangle((0, 0), 1, 1, color='#648FFF', label='Other electrodes')
+    ]
+    ax.legend(handles=handles, frameon=False, loc='upper right')
+    ax.text(
+        0.01,
+        0.97,
+        f"Optimization units: {n_units}\nWeight: strength or 1/rank",
+        transform=ax.transAxes,
+        ha='left',
+        va='top',
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85),
+        fontsize=9
+    )
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted-rank score figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_weighted_rank_symmetric_comparison(weighted_stats_df,
+                                           save_path: str = None,
+                                           figsize: Tuple = (7, 5)):
+    """Plot weighted top target against the symmetric homolog."""
+    if weighted_stats_df is None or weighted_stats_df.empty:
+        print("No weighted-rank candidate-region statistics to plot")
+        return None
+
+    symmetric_rows = weighted_stats_df[
+        weighted_stats_df['comparison_relation'] == 'symmetric'
+    ]
+
+    fig, ax = plt.subplots(figsize=figsize)
+    if symmetric_rows.empty:
+        first_row = weighted_stats_df.iloc[0]
+        ax.axis('off')
+        ax.set_title('Rank-Weighted: Top Target vs Symmetric Homolog', fontsize=14, fontweight='bold')
+        ax.text(
+            0.5,
+            0.58,
+            f"Top weighted target: {first_row['top_region']}",
+            ha='center',
+            va='center',
+            fontsize=14,
+            fontweight='bold'
+        )
+        ax.text(
+            0.5,
+            0.42,
+            "No contralateral homolog is defined\nfor this electrode.",
+            ha='center',
+            va='center',
+            fontsize=11
+        )
+    else:
+        row = symmetric_rows.iloc[0]
+        labels = [row['top_region'], row['comparison_region']]
+        weights = [float(row['top_weighted_count']), float(row['comparison_weighted_count'])]
+        bars = ax.bar(labels, weights, color=['#DC267F', '#FE6100'],
+                      edgecolor='black', alpha=0.93)
+        ax.set_title('Rank-Weighted: Top Target vs Symmetric Homolog',
+                     fontsize=14, fontweight='bold')
+        ax.set_ylabel('Weighted score sum')
+        ax.grid(axis='y', alpha=0.25)
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                f"{height:.2f}",
+                ha='center',
+                va='bottom',
+                fontsize=11,
+                fontweight='bold'
+            )
+        ax.text(
+            0.5,
+            0.96,
+            f"sign-flip p = {_format_pvalue(row['p_uncorrected'])}\n"
+            f"FDR p = {_format_pvalue(row['p_fdr_bh'])}",
+            transform=ax.transAxes,
+            ha='center',
+            va='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.88),
+            fontsize=10
+        )
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted-rank symmetric comparison figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_weighted_rank_pairwise_superiority(weighted_stats_df,
+                                           save_path: str = None,
+                                           figsize: Tuple = (11, 8)):
+    """Plot weighted-rank FDR-corrected paired sign-flip tests."""
+    if weighted_stats_df is None or weighted_stats_df.empty:
+        print("No weighted-rank candidate-region statistics to plot")
+        return None
+
+    plot_df = weighted_stats_df.copy()
+    plot_df['neg_log10_fdr_p'] = -np.log10(
+        np.clip(plot_df['p_fdr_bh'].astype(float), 1e-300, 1.0)
+    )
+    plot_df['is_significant'] = plot_df['p_fdr_bh'].astype(float) < 0.05
+    plot_df = plot_df.sort_values(
+        by=['is_significant', 'neg_log10_fdr_p', 'comparison_region'],
+        ascending=[True, True, True]
+    )
+
+    colors = []
+    for _, row in plot_df.iterrows():
+        if row['comparison_relation'] == 'symmetric':
+            colors.append('#FE6100')
+        elif bool(row['is_significant']):
+            colors.append('#3A7D44')
+        else:
+            colors.append('#7A8FA6')
+
+    fig, ax = plt.subplots(figsize=figsize)
+    bars = ax.barh(
+        plot_df['comparison_region'],
+        plot_df['neg_log10_fdr_p'],
+        color=colors,
+        edgecolor='black',
+        linewidth=0.5,
+        alpha=0.93
+    )
+    ax.axvline(-np.log10(0.05), color='#DC267F', linestyle='--',
+               linewidth=1.5, label='FDR p = 0.05')
+    top_region = str(plot_df['top_region'].iloc[0])
+    ax.set_title(f'Rank-Weighted Pairwise Superiority: {top_region} vs Other Electrodes',
+                 fontsize=14, fontweight='bold')
+    ax.set_xlabel('-log10(FDR-corrected p-value)')
+    ax.set_ylabel('Comparison electrode')
+    ax.grid(axis='x', alpha=0.25)
+
+    for bar, (_, row) in zip(bars, plot_df.iterrows()):
+        label = f"diff={float(row['mean_paired_difference']):.3f}"
+        ax.text(
+            bar.get_width() + 0.03,
+            bar.get_y() + bar.get_height() / 2,
+            label,
+            va='center',
+            fontsize=8
+        )
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color='#3A7D44', label='FDR significant'),
+        plt.Rectangle((0, 0), 1, 1, color='#FE6100', label='Symmetric homolog'),
+        plt.Rectangle((0, 0), 1, 1, color='#7A8FA6', label='Not significant')
+    ]
+    ax.legend(handles=handles, frameon=False, loc='lower right')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted-rank pairwise superiority figure saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_weighted_rank_statistics_dashboard(weighted_stats_df,
+                                           channel_names: List[str],
+                                           save_path: str = None,
+                                           figsize: Tuple = (14, 9)):
+    """Create a compact dashboard for rank-weighted target statistics."""
+    weights, top_node, symmetric_node = _weighted_region_counts(weighted_stats_df, channel_names)
+    if top_node is None:
+        print("No weighted-rank candidate-region statistics to plot")
+        return None
+
+    top_region = channel_names[top_node]
+    n_units = int(weighted_stats_df.iloc[0]['n_optimization_units'])
+    top_weight = float(weighted_stats_df.iloc[0]['top_weighted_count'])
+    significant_count = int(np.sum(weighted_stats_df['p_fdr_bh'].astype(float) < 0.05))
+
+    fig = plt.figure(figsize=figsize)
+    grid = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.25], width_ratios=[1.0, 1.1])
+    ax_summary = fig.add_subplot(grid[0, 0])
+    ax_counts = fig.add_subplot(grid[0, 1])
+    ax_pvalues = fig.add_subplot(grid[1, :])
+
+    ax_summary.axis('off')
+    symmetric_text = "N/A"
+    if symmetric_node is not None:
+        symmetric_rows = weighted_stats_df[weighted_stats_df['comparison_relation'] == 'symmetric']
+        if not symmetric_rows.empty:
+            row = symmetric_rows.iloc[0]
+            symmetric_text = (
+                f"{row['comparison_region']} "
+                f"({float(row['top_weighted_count']):.2f} vs "
+                f"{float(row['comparison_weighted_count']):.2f}, "
+                f"FDR p={_format_pvalue(row['p_fdr_bh'])})"
+            )
+
+    summary_text = (
+        f"Top weighted target: {top_region}\n"
+        f"Weighted score: {top_weight:.3f} ({top_weight / n_units:.3f} per unit)\n"
+        f"Symmetric comparison: {symmetric_text}\n"
+        f"FDR-significant pairwise wins: {significant_count}/{len(weighted_stats_df)}"
+    )
+    ax_summary.text(
+        0.03,
+        0.94,
+        summary_text,
+        ha='left',
+        va='top',
+        fontsize=12,
+        linespacing=1.5,
+        bbox=dict(boxstyle='round', facecolor='#F7F7F7', edgecolor='#BDBDBD')
+    )
+    ax_summary.set_title('Rank-Weighted Statistics Summary', fontsize=13, fontweight='bold')
+
+    top_order = np.argsort(weights)[::-1][:min(8, len(channel_names))]
+    top_order = top_order[::-1]
+    count_colors = ['#DC267F' if idx == top_node else '#648FFF' for idx in top_order]
+    ax_counts.barh([channel_names[idx] for idx in top_order], weights[top_order],
+                   color=count_colors, edgecolor='black', linewidth=0.5)
+    ax_counts.set_title('Top Weighted Electrodes', fontsize=13, fontweight='bold')
+    ax_counts.set_xlabel('Weighted score sum')
+    ax_counts.grid(axis='x', alpha=0.25)
+
+    plot_df = weighted_stats_df.copy()
+    plot_df['neg_log10_fdr_p'] = -np.log10(
+        np.clip(plot_df['p_fdr_bh'].astype(float), 1e-300, 1.0)
+    )
+    plot_df = plot_df.sort_values('neg_log10_fdr_p', ascending=False).head(12).iloc[::-1]
+    p_colors = np.where(plot_df['p_fdr_bh'].astype(float) < 0.05, '#3A7D44', '#7A8FA6')
+    ax_pvalues.barh(plot_df['comparison_region'], plot_df['neg_log10_fdr_p'],
+                    color=p_colors, edgecolor='black', linewidth=0.5)
+    ax_pvalues.axvline(-np.log10(0.05), color='#DC267F', linestyle='--', linewidth=1.4)
+    ax_pvalues.set_title('Strongest Rank-Weighted Pairwise Tests', fontsize=13, fontweight='bold')
+    ax_pvalues.set_xlabel('-log10(FDR-corrected p-value)')
+    ax_pvalues.grid(axis='x', alpha=0.25)
+
+    fig.suptitle('Rank-Weighted Candidate Stimulation Target Statistics',
+                 fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Weighted-rank statistics dashboard saved to: {save_path}")
+    plt.close(fig)
+    return fig
+
+
+def plot_weighted_rank_region_statistics(weighted_stats_df,
+                                         channel_names: List[str],
+                                         output_dir: str,
+                                         prefix: str = 'rank_weighted_target_statistics'):
+    """Create all rank-weighted statistical figures."""
+    os.makedirs(output_dir, exist_ok=True)
+    figure_specs = [
+        (
+            plot_weighted_rank_statistics_dashboard,
+            os.path.join(output_dir, f'{prefix}_dashboard.png'),
+            (weighted_stats_df, channel_names)
+        ),
+        (
+            plot_weighted_rank_region_scores,
+            os.path.join(output_dir, f'{prefix}_scores.png'),
+            (weighted_stats_df, channel_names)
+        ),
+        (
+            plot_weighted_rank_symmetric_comparison,
+            os.path.join(output_dir, f'{prefix}_symmetric_comparison.png'),
+            (weighted_stats_df,)
+        ),
+        (
+            plot_weighted_rank_pairwise_superiority,
+            os.path.join(output_dir, f'{prefix}_pairwise_superiority.png'),
+            (weighted_stats_df,)
         )
     ]
 
@@ -1116,13 +1468,21 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
 
         try:
-            from statistics_utils import compute_candidate_region_selection_stats
+            from statistics_utils import (
+                compute_candidate_region_selection_stats,
+                compute_candidate_region_weighted_rank_stats
+            )
             candidate_stats_df = compute_candidate_region_selection_stats(
+                optimization_results,
+                channel_names
+            )
+            weighted_rank_stats_df = compute_candidate_region_weighted_rank_stats(
                 optimization_results,
                 channel_names
             )
         except Exception as exc:
             candidate_stats_df = None
+            weighted_rank_stats_df = None
             f.write("Candidate-region statistics could not be computed: "
                     f"{exc}\n\n")
 
@@ -1131,10 +1491,10 @@ def create_optimization_report(optimization_results: Dict,
             top_count = int(candidate_stats_df.iloc[0]['top_count'])
             n_units = int(candidate_stats_df.iloc[0]['n_optimization_units'])
             f.write("="*80 + "\n")
-            f.write("CANDIDATE REGION SELECTION STATISTICS\n")
+            f.write("HARD BEST-SOLUTION CANDIDATE REGION STATISTICS\n")
             f.write("="*80 + "\n")
             f.write(
-                f"Most-selected region: {top_region} "
+                f"Most-selected hard best-solution region: {top_region} "
                 f"({top_count}/{n_units}, {top_count/n_units*100:.1f}%)\n"
             )
             f.write(
@@ -1164,6 +1524,53 @@ def create_optimization_report(optimization_results: Dict,
                     f"  {row['top_region']} vs {row['comparison_region']} "
                     f"({row['comparison_relation']}): "
                     f"{int(row['top_count'])} vs {int(row['comparison_count'])}, "
+                    f"p={row['p_uncorrected']:.6g}, "
+                    f"p_fdr_bh={row['p_fdr_bh']:.6g}\n"
+                )
+            f.write("\n")
+
+        if weighted_rank_stats_df is not None and not weighted_rank_stats_df.empty:
+            top_region = weighted_rank_stats_df.iloc[0]['top_region']
+            top_weight = float(weighted_rank_stats_df.iloc[0]['top_weighted_count'])
+            n_units = int(weighted_rank_stats_df.iloc[0]['n_optimization_units'])
+            f.write("="*80 + "\n")
+            f.write("RANK-WEIGHTED CANDIDATE REGION STATISTICS\n")
+            f.write("="*80 + "\n")
+            f.write(
+                f"Top weighted region: {top_region} "
+                f"(weighted sum={top_weight:.6f}, per-unit={top_weight/n_units:.6f})\n"
+            )
+            f.write(
+                "Test: paired one-sided sign-flip permutation test over optimization units "
+                "for weight(top) > weight(comparison); p_fdr_bh corrects all pairwise "
+                "electrode comparisons.\n\n"
+            )
+
+            symmetric_rows = weighted_rank_stats_df[
+                weighted_rank_stats_df['comparison_relation'] == 'symmetric'
+            ]
+            if not symmetric_rows.empty:
+                row = symmetric_rows.iloc[0]
+                f.write("Contralateral homolog comparison:\n")
+                f.write(
+                    f"  {row['top_region']} vs {row['comparison_region']}: "
+                    f"{float(row['top_weighted_count']):.6f} vs "
+                    f"{float(row['comparison_weighted_count']):.6f}, "
+                    f"mean_diff={float(row['mean_paired_difference']):.6f}, "
+                    f"p={row['p_uncorrected']:.6g}, "
+                    f"p_fdr_bh={row['p_fdr_bh']:.6g}\n\n"
+                )
+            else:
+                f.write("Contralateral homolog comparison: not available for this top region.\n\n")
+
+            f.write("Strongest rank-weighted pairwise comparisons against other regions:\n")
+            for _, row in weighted_rank_stats_df.head(10).iterrows():
+                f.write(
+                    f"  {row['top_region']} vs {row['comparison_region']} "
+                    f"({row['comparison_relation']}): "
+                    f"{float(row['top_weighted_count']):.6f} vs "
+                    f"{float(row['comparison_weighted_count']):.6f}, "
+                    f"mean_diff={float(row['mean_paired_difference']):.6f}, "
                     f"p={row['p_uncorrected']:.6g}, "
                     f"p_fdr_bh={row['p_fdr_bh']:.6g}\n"
                 )

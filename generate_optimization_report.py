@@ -16,9 +16,13 @@ from optimization_config import (
 )
 from optimization_visualization import (
     create_optimization_report,
-    plot_candidate_region_statistics
+    plot_candidate_region_statistics,
+    plot_weighted_rank_region_statistics
 )
-from statistics_utils import compute_candidate_region_selection_stats
+from statistics_utils import (
+    compute_candidate_region_selection_stats,
+    compute_candidate_region_weighted_rank_stats
+)
 
 
 def _load_pickle_dict(path: str) -> Dict:
@@ -116,17 +120,34 @@ def main() -> None:
         "candidate_region_selection_stats.csv"
     )
     stats_df.to_csv(stats_path, index=False)
-    print(f"Saved candidate-region selection statistics: {stats_path}")
+    print(f"Saved hard best-solution candidate-region statistics: {stats_path}")
+
+    weighted_stats_df = compute_candidate_region_weighted_rank_stats(
+        optimization_results,
+        channel_names
+    )
+    weighted_stats_path = os.path.join(
+        os.path.dirname(output_path),
+        "candidate_region_weighted_rank_stats.csv"
+    )
+    weighted_stats_df.to_csv(weighted_stats_path, index=False)
+    print(f"Saved rank-weighted candidate-region statistics: {weighted_stats_path}")
 
     figures_dir = args.figures_dir if args.figures_dir is not None else OPTIMIZATION_FIGURES_DIR
     figure_paths = plot_candidate_region_statistics(
         stats_df,
         channel_names,
         figures_dir,
-        prefix="final_target_statistics"
+        prefix="hard_best_solution_target_statistics"
     )
+    figure_paths.extend(plot_weighted_rank_region_statistics(
+        weighted_stats_df,
+        channel_names,
+        figures_dir,
+        prefix="rank_weighted_target_statistics"
+    ))
     for figure_path in figure_paths:
-        print(f"Saved final-target statistic figure: {figure_path}")
+        print(f"Saved candidate-region statistic figure: {figure_path}")
 
 
 if __name__ == "__main__":

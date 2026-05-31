@@ -487,3 +487,162 @@ def compute_candidate_region_selection_stats(optimization_results, channel_names
     ).drop(columns=['_sort_relation']).reset_index(drop=True)
 
     return stats_df
+
+
+def _weighted_rank_vectors_from_results(optimization_results, channel_names, top_k=None):
+    """Build one per-optimization-unit electrode weight vector from ranked solutions."""
+    n_channels = len(channel_names)
+    unit_vectors = []
+
+    for result in optimization_results.values():
+        if not isinstance(result, dict):
+            continue
+
+        ranked = result.get('top_solutions') or []
+        if top_k is not None:
+            ranked = ranked[:int(top_k)]
+
+        weights = np.zeros(n_channels, dtype=float)
+        if ranked:
+            for position, sol in enumerate(ranked, start=1):
+                if sol is None or sol.get('node') is None:
+                    continue
+                node = int(sol['node'])
+                if node < 0 or node >= n_channels:
+                    continue
+                rank = sol.get('rank', position)
+                try:
+                    rank = float(rank)
+                except (TypeError, ValueError):
+                    rank = float(position)
+                weight = sol.get('strength')
+                if weight is None:
+                    weight = 1.0 / max(rank, 1.0)
+                weights[node] += float(weight)
+        else:
+            best_solution = result.get('best_solution')
+            if best_solution is None or best_solution.get('node') is None:
+                continue
+            node = int(best_solution['node'])
+            if 0 <= node < n_channels:
+                weights[node] = 1.0
+
+        if np.any(weights > 0):
+            unit_vectors.append(weights)
+
+    if not unit_vectors:
+        return np.empty((0, n_channels), dtype=float)
+    return np.vstack(unit_vectors)
+
+
+def _paired_sign_flip_pvalue(differences, n_permutations=10000, random_state=42):
+    """
+    One-sided paired sign-flip permutation p-value for mean(differences) > 0.
+    """
+    differences = np.asarray(differences, dtype=float)
+    differences = differences[np.isfinite(differences)]
+    if len(differences) == 0:
+        return np.nan
+
+    observed = float(np.mean(differences))
+    if observed <= 0:
+        return 1.0
+
+    nonzero = differences[np.abs(differences) > 1e-12]
+    if len(nonzero) == 0:
+        return 1.0
+
+    max_exact = 2 ** len(nonzero)
+    if max_exact <= n_permutations and len(nonzero) <= 20:
+        stats_perm = []
+        for mask in range(max_exact):
+            signs = np.ones(len(nonzero), dtype=float)
+            for bit_idx in range(len(nonzero)):
+                if (mask >> bit_idx) & 1:
+                    signs[bit_idx] = -1.0
+            stats_perm.append(float(np.sum(signs * nonzero) / len(differences)))
+        stats_perm = np.asarray(stats_perm, dtype=float)
+        return float(np.mean(stats_perm >= observed - 1e-12))
+
+    rng = np.random.default_rng(random_state)
+    signs = rng.choice([-1.0, 1.0], size=(int(n_permutations), len(nonzero)))
+    stats_perm = np.sum(signs * nonzero[None, :], axis=1) / len(differences)
+    return float((np.sum(stats_perm >= observed - 1e-12) + 1.0) / (len(stats_perm) + 1.0))
+
+
+def compute_candidate_region_weighted_rank_stats(
+    optimization_results,
+    channel_names,
+    top_k=None,
+    n_permutations=10000,
+    random_state=42,
+    alpha=0.05
+):
+    """
+    Test whether the top rank-weighted electrode is superior to other electrodes.
+
+    Each optimization unit contributes a paired weight vector over electrodes,
+    using top_solutions strength values (default strength = 1/rank). Pairwise
+    p-values use a one-sided paired sign-flip permutation test on
+    weight(top) - weight(comparison).
+    """
+    unit_weights = _weighted_rank_vectors_from_results(
+        optimization_results,
+        channel_names,
+        top_k=top_k
+    )
+    n_units = unit_weights.shape[0]
+    n_channels = len(channel_names)
+    if n_units == 0 or n_channels == 0:
+        return pd.DataFrame()
+
+    weighted_counts = np.sum(unit_weights, axis=0)
+    top_node = int(np.argmax(weighted_counts))
+    top_weight = float(weighted_counts[top_node])
+    mirror_pairs = infer_symmetric_electrode_pairs(channel_names)
+    symmetric_node = mirror_pairs.get(top_node)
+
+    rows = []
+    for node_idx, node_name in enumerate(channel_names):
+        if node_idx == top_node:
+            continue
+
+        differences = unit_weights[:, top_node] - unit_weights[:, node_idx]
+        p_uncorrected = _paired_sign_flip_pvalue(
+            differences,
+            n_permutations=n_permutations,
+            random_state=random_state + node_idx
+        )
+        comparison_weight = float(weighted_counts[node_idx])
+        rows.append({
+            'top_node': top_node,
+            'top_region': channel_names[top_node],
+            'comparison_node': node_idx,
+            'comparison_region': node_name,
+            'comparison_relation': 'symmetric' if node_idx == symmetric_node else 'other',
+            'n_optimization_units': n_units,
+            'top_weighted_count': top_weight,
+            'comparison_weighted_count': comparison_weight,
+            'top_weighted_rate': top_weight / n_units,
+            'comparison_weighted_rate': comparison_weight / n_units,
+            'mean_paired_difference': float(np.mean(differences)),
+            'median_paired_difference': float(np.median(differences)),
+            'p_uncorrected': p_uncorrected,
+            'n_permutations': int(n_permutations),
+            'top_k': top_k if top_k is not None else np.nan,
+        })
+
+    stats_df = pd.DataFrame(rows)
+    if stats_df.empty:
+        return stats_df
+
+    corrected = correct_multiple_comparisons(stats_df['p_uncorrected'].to_numpy(), method='fdr_bh')
+    stats_df['p_fdr_bh'] = corrected
+    stats_df[f'significant_fdr_{alpha}'] = stats_df['p_fdr_bh'] < alpha
+
+    sort_relation = stats_df['comparison_relation'].map({'symmetric': 0, 'other': 1}).fillna(2)
+    stats_df = stats_df.assign(_sort_relation=sort_relation).sort_values(
+        by=['_sort_relation', 'p_uncorrected', 'comparison_region']
+    ).drop(columns=['_sort_relation']).reset_index(drop=True)
+
+    return stats_df
