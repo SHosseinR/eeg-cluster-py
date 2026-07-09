@@ -18,18 +18,34 @@ from plasticity import compute_plasticity_effect
 
 _WORKER_OPTIMIZER = None
 _WORKER_VERBOSE = False
+_WORKER_RESULT_DIR = None
 
 
-def _init_optimizer_worker(optimizer, verbose):
+def _safe_result_filename(subject_id: str) -> str:
+    safe = str(subject_id).replace(os.sep, "_").replace("/", "_")
+    return f"{safe}.npy"
+
+
+def _save_subject_result(result_dir: str, subject_id: str, result: Dict) -> str:
+    os.makedirs(result_dir, exist_ok=True)
+    result_path = os.path.join(result_dir, _safe_result_filename(subject_id))
+    np.save(result_path, result, allow_pickle=True)
+    return result_path
+
+
+def _init_optimizer_worker(optimizer, verbose, result_dir=None):
     """Initialize each process with an optimizer instance."""
-    global _WORKER_OPTIMIZER, _WORKER_VERBOSE
+    global _WORKER_OPTIMIZER, _WORKER_VERBOSE, _WORKER_RESULT_DIR
     _WORKER_OPTIMIZER = optimizer
     _WORKER_VERBOSE = verbose
+    _WORKER_RESULT_DIR = result_dir
 
 
 def _optimize_subject_worker(subject_id: str):
     """Run optimization for one subject in worker process."""
     result = _WORKER_OPTIMIZER.optimize_subject(subject_id, verbose=_WORKER_VERBOSE)
+    if _WORKER_RESULT_DIR:
+        return subject_id, _save_subject_result(_WORKER_RESULT_DIR, subject_id, result)
     return subject_id, result
 
 
@@ -263,6 +279,12 @@ class EEGOptimizer:
             print(f"    Warning: No raw data for {subject_id}, using random baseline")
             # return np.random.randn(self.n_nodes)  # mean=0, std=1
             raise RuntimeError(f"No raw data for subject: {subject_id}")
+
+        if 'baseline_activation' in self.subject_data[subject_id]:
+            return np.asarray(
+                self.subject_data[subject_id]['baseline_activation'],
+                dtype=float
+            )
 
         # Get raw data
         data = self.subject_data[subject_id]['data']  # shape: (n_channels, n_samples)
@@ -711,7 +733,13 @@ class EEGOptimizer:
         
         return results
     
-    def optimize_all_patients(self, verbose: bool = True, n_jobs: int = None) -> Dict:
+    def optimize_all_patients(
+        self,
+        verbose: bool = True,
+        n_jobs: int = None,
+        result_dir: str = None,
+        return_results: bool = True
+    ) -> Dict:
         """
         Run optimization for all patient subjects.
         
@@ -722,6 +750,12 @@ class EEGOptimizer:
         n_jobs : int, optional
             Number of parallel worker processes. If None, uses all available cores.
             Use 1 to force sequential execution.
+        result_dir : str, optional
+            If provided, save each subject result to this directory as soon as it
+            finishes.
+        return_results : bool
+            If False with result_dir set, keep only result paths in memory during
+            the optimization run.
             
         Returns
         -------
@@ -734,6 +768,10 @@ class EEGOptimizer:
         print(f"Connectivity method: {self.selected_method.upper()}")
         print(f"Optimization measures: {', '.join(self.optimization_measures)}")
         print(f"\nOptimization directions:")
+
+        if result_dir:
+            os.makedirs(result_dir, exist_ok=True)
+            print(f"Per-subject optimization results will be saved to: {result_dir}")
         
         # Get patient subject IDs
         patient_subjects = list(self.network_measures['Patient'].keys())
@@ -753,7 +791,11 @@ class EEGOptimizer:
                     print(f"\n[{i+1}/{total_subjects}] ", end="")
                 try:
                     results = self.optimize_subject(subject_id, verbose=verbose)
-                    all_results[subject_id] = results
+                    if result_dir:
+                        result_path = _save_subject_result(result_dir, subject_id, results)
+                        all_results[subject_id] = results if return_results else result_path
+                    else:
+                        all_results[subject_id] = results
                 except Exception as e:
                     print(f"ERROR optimizing {subject_id}: {str(e)}")
                     continue
@@ -764,7 +806,7 @@ class EEGOptimizer:
             with ProcessPoolExecutor(
                 max_workers=max_workers,
                 initializer=_init_optimizer_worker,
-                initargs=(self, subject_verbose)
+                initargs=(self, subject_verbose, result_dir)
             ) as executor:
                 future_to_subject = {
                     executor.submit(_optimize_subject_worker, subject_id): subject_id
@@ -774,8 +816,10 @@ class EEGOptimizer:
                 for i, future in enumerate(as_completed(future_to_subject), start=1):
                     subject_id = future_to_subject[future]
                     try:
-                        _, results = future.result()
-                        all_results[subject_id] = results
+                        _, result_or_path = future.result()
+                        if result_dir and return_results:
+                            result_or_path = np.load(result_or_path, allow_pickle=True).item()
+                        all_results[subject_id] = result_or_path
                         print(f"[{i}/{total_subjects}] Completed {subject_id}")
                     except Exception as e:
                         print(f"[{i}/{total_subjects}] ERROR optimizing {subject_id}: {str(e)}")

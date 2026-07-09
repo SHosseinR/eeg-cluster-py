@@ -36,7 +36,7 @@ from statistics_utils import (
 )
 
 # Import data loading (assuming these exist in your main pipeline)
-from data_loader import load_group_data
+from data_loader import load_subject_epochs
 from channel_metadata import get_display_channel_names
 
 
@@ -49,6 +49,64 @@ def create_output_directories():
     for dir_path in dirs:
         os.makedirs(dir_path, exist_ok=True)
     print(f"Output directories created")
+
+
+def _compute_baseline_activation(data):
+    """Compute the optimizer's baseline node activation from raw EEG data."""
+    baseline = np.mean(data, axis=1)
+    baseline = (baseline - baseline.min()) / (baseline.max() - baseline.min() + 1e-10)
+    return baseline * 0.9 + 0.1
+
+
+def _load_group_baseline_data(data_path, group_name):
+    """Load subjects one at a time and keep only optimizer baseline vectors."""
+    subject_folders = [f.path for f in os.scandir(data_path) if f.is_dir()]
+    subject_folders = sorted(subject_folders)
+
+    if not subject_folders:
+        raise ValueError(f"No subject folders found in {data_path}")
+
+    print(f"\nLoading {group_name} baseline activations from: {data_path}")
+    print(f"Found {len(subject_folders)} subjects")
+
+    subject_data = {}
+    for i, subject_folder in enumerate(subject_folders, start=1):
+        subject_id = os.path.basename(subject_folder)
+        print(f"[{i}/{len(subject_folders)}] Baseline for {subject_id}")
+
+        try:
+            data, fs, channels, channel_metadata = load_subject_epochs(subject_folder)
+        except Exception as e:
+            print(f"  ERROR loading {subject_id}: {str(e)}")
+            continue
+
+        subject_data[subject_id] = {
+            'baseline_activation': _compute_baseline_activation(data),
+            'fs': fs,
+            'channels': channels,
+            'channel_names': channels,
+            'channel_display_names': channel_metadata['channel_display_names'],
+            'channel_metadata': channel_metadata,
+            'group': group_name
+        }
+        del data
+
+    print(f"Loaded {len(subject_data)}/{len(subject_folders)} {group_name} baseline activations")
+    return subject_data
+
+
+def _load_subject_optimization_results(result_dir):
+    """Load per-subject optimization result files into the usual result dict."""
+    results = {}
+    for result_file in sorted(os.listdir(result_dir)):
+        if not result_file.endswith('.npy'):
+            continue
+        result_path = os.path.join(result_dir, result_file)
+        result = np.load(result_path, allow_pickle=True).item()
+        subject_id = result.get('subject_id') or os.path.splitext(result_file)[0]
+        results[subject_id] = result
+    print(f"Loaded {len(results)} per-subject optimization results from: {result_dir}")
+    return results
 
 
 def load_data_for_optimization():
@@ -98,36 +156,12 @@ def load_data_for_optimization():
     # Replace these with your actual paths from config
     from config import HC_DATA_PATH, PATIENT_DATA_PATH
     
-    healthy_data = load_group_data(HC_DATA_PATH, group_name="Healthy")
-    patient_data = load_group_data(PATIENT_DATA_PATH, group_name="Patient")
-    
-    # Create subject_data dict
     subject_data = {}
-    
-    for subject in healthy_data:
-        subject_data[subject['subject_id']] = {
-            'data': subject['data'],
-            'fs': subject['fs'],
-            'channels': subject['channels'],
-            'channel_names': subject.get('channel_names', subject['channels']),
-            'channel_display_names': subject.get('channel_display_names', subject['channels']),
-            'channel_metadata': subject.get('channel_metadata'),
-            'group': 'Healthy'
-        }
-    
-    for subject in patient_data:
-        subject_data[subject['subject_id']] = {
-            'data': subject['data'],
-            'fs': subject['fs'],
-            'channels': subject['channels'],
-            'channel_names': subject.get('channel_names', subject['channels']),
-            'channel_display_names': subject.get('channel_display_names', subject['channels']),
-            'channel_metadata': subject.get('channel_metadata'),
-            'group': 'Patient'
-        }
-    
-    print(f"✓ Loaded raw data for {len(subject_data)} subjects")
-    
+    subject_data.update(_load_group_baseline_data(HC_DATA_PATH, "Healthy"))
+    subject_data.update(_load_group_baseline_data(PATIENT_DATA_PATH, "Patient"))
+
+    print(f"Loaded baseline activations for {len(subject_data)} subjects")
+
     # Get channel names (assuming all subjects have same channels)
     first_subject = list(subject_data.values())[0]
     channel_names = first_subject['channels']
@@ -511,10 +545,18 @@ def main():
             )
 
             try:
-                optimization_results = optimizer.optimize_all_patients(
-                    verbose=True,
-                    n_jobs=OPTIMIZATION_N_JOBS
+                subject_result_dir = os.path.join(
+                    OPTIMIZATION_OUTPUT_DIR,
+                    f"{band_name}_subject_results"
                 )
+                optimizer.optimize_all_patients(
+                    verbose=True,
+                    n_jobs=OPTIMIZATION_N_JOBS,
+                    result_dir=subject_result_dir,
+                    return_results=False
+                )
+                optimization_results = _load_subject_optimization_results(subject_result_dir)
+                optimizer.optimization_results = optimization_results
             except Exception as e:
                 print(f"\nERROR during optimization for band {band_name}: {str(e)}")
                 import traceback
@@ -638,10 +680,18 @@ def main():
         print(f"Optimization workers requested: {OPTIMIZATION_N_JOBS} (effective: {effective_workers})")
 
         try:
-            optimization_results = optimizer.optimize_all_patients(
-                verbose=True,
-                n_jobs=OPTIMIZATION_N_JOBS
+            subject_result_dir = os.path.join(
+                OPTIMIZATION_OUTPUT_DIR,
+                "subject_results"
             )
+            optimizer.optimize_all_patients(
+                verbose=True,
+                n_jobs=OPTIMIZATION_N_JOBS,
+                result_dir=subject_result_dir,
+                return_results=False
+            )
+            optimization_results = _load_subject_optimization_results(subject_result_dir)
+            optimizer.optimization_results = optimization_results
         except Exception as e:
             print(f"\nERROR during optimization: {str(e)}")
             import traceback

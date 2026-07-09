@@ -38,11 +38,57 @@ from classification import (
 )
 
 
+def _filtered_epochs_dir():
+    return os.path.join(OUTPUT_DIR, 'data', 'filtered_epochs')
+
+
+def _filtered_epochs_index_path():
+    return os.path.join(OUTPUT_DIR, 'data', 'filtered_epochs_index.npy')
+
+
+def _filtered_epochs_path(group_name, subject_id):
+    safe_group = str(group_name).replace(os.sep, '_')
+    safe_subject = str(subject_id).replace(os.sep, '_')
+    return os.path.join(_filtered_epochs_dir(), safe_group, f'{safe_subject}.npy')
+
+
+def _save_filtered_subject(group_name, subject_id, subject, filtered_epochs):
+    """Persist one subject's filtered epochs and return lightweight metadata."""
+    path = _filtered_epochs_path(group_name, subject_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    compact_filtered_epochs = {
+        band_name: np.asarray(band_epochs, dtype=np.float32)
+        for band_name, band_epochs in filtered_epochs.items()
+    }
+    payload = {
+        'filtered_epochs': compact_filtered_epochs,
+        'fs': subject['fs'],
+        'channels': subject['channels'],
+        'channel_names': subject.get('channel_names', subject['channels']),
+        'channel_display_names': subject.get('channel_display_names', subject['channels']),
+        'channel_metadata': subject.get('channel_metadata')
+    }
+    np.save(path, payload, allow_pickle=True)
+    return {
+        'filtered_epochs_path': path,
+        'fs': subject['fs'],
+        'channels': subject['channels'],
+        'channel_names': subject.get('channel_names', subject['channels']),
+        'channel_display_names': subject.get('channel_display_names', subject['channels']),
+        'channel_metadata': subject.get('channel_metadata')
+    }
+
+
+def _load_filtered_subject(path):
+    return np.load(path, allow_pickle=True).item()
+
+
 def _compute_subject_connectivity_task(task):
     """Worker task for per-subject connectivity computation."""
-    group_name, subject_id, filtered_epochs, fs, methods = task
+    group_name, subject_id, filtered_epochs_path, fs, methods = task
+    payload = _load_filtered_subject(filtered_epochs_path)
     conn_results = compute_all_connectivity(
-        filtered_epochs,
+        payload['filtered_epochs'],
         fs,
         methods=methods
     )
@@ -116,14 +162,22 @@ def main():
                 print(f"\nProcessing {subject_id} ({group_name})...")
                 
                 filtered_epochs = process_subject_epochs(subject['data'], subject['fs'])
-                all_subjects_filtered[group_name][subject_id] = {
-                    'filtered_epochs': filtered_epochs,
-                    'fs': subject['fs'],
-                    'channels': subject['channels'],
-                    'channel_names': subject.get('channel_names', subject['channels']),
-                    'channel_display_names': subject.get('channel_display_names', subject['channels']),
-                    'channel_metadata': subject.get('channel_metadata')
-                }
+                all_subjects_filtered[group_name][subject_id] = _save_filtered_subject(
+                    group_name,
+                    subject_id,
+                    subject,
+                    filtered_epochs
+                )
+                del filtered_epochs
+
+        np.save(_filtered_epochs_index_path(), all_subjects_filtered, allow_pickle=True)
+        print(f"\nSaved filtered-epoch index: {_filtered_epochs_index_path()}")
+
+        # The connectivity stage reloads each subject from disk in its worker.
+        # Free the full raw recordings before spawning those workers.
+        del healthy_data, patient_data
+        if 'all_data' in locals():
+            del all_data
         
     # ========================================================================
     # STEP 3: CONNECTIVITY ANALYSIS
@@ -133,6 +187,16 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 3:
+        if 'all_subjects_filtered' not in locals():
+            index_path = _filtered_epochs_index_path()
+            if not os.path.exists(index_path):
+                raise FileNotFoundError(
+                    "Filtered epoch index not found. Run STEP_TO_START <= 2 first: "
+                    f"{index_path}"
+                )
+            all_subjects_filtered = np.load(index_path, allow_pickle=True).item()
+            print(f"Loaded filtered-epoch index: {index_path}")
+
         connectivity_matrices = {group_name: {} for group_name in all_subjects_filtered.keys()}
         connectivity_tasks = []
 
@@ -142,7 +206,7 @@ def main():
                     (
                         group_name,
                         subject_id,
-                        subject_data['filtered_epochs'],
+                        subject_data['filtered_epochs_path'],
                         subject_data['fs'],
                         CONNECTIVITY_METHODS
                     )

@@ -12,23 +12,22 @@ import numpy as np
 # HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"
 # PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"
 # OUTPUT_DIR = "./results-ADHD"
-MODMA_PREPROCESSED_ROOT = (
-    "D:\\university\\projects\\graph-opt\\mdd-dataset-2\\MODMA_EEG_BIDS_format\\"
-    "MODMA_EEG_BIDS_format\\output\\preprocessed_resting_state_full"
+TDBRAIN_PREPROCESSED_ROOT = (
+    "D:\\university\\projects\\graph-opt\\tbdbrain\\TDBRAIN_Dataset_V3_1\\"
+    "output\\preprocessed_tdbrain_restEC_set2"
 )
-HC_DATA_PATH = os.path.join(MODMA_PREPROCESSED_ROOT, "Control")
-PATIENT_DATA_PATH = os.path.join(MODMA_PREPROCESSED_ROOT, "Patient")
-OUTPUT_DIR = "./results-MODMA-resting"
+HC_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "Healthy")
+PATIENT_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "MDD")
+OUTPUT_DIR = "./results-TDBRAIN-restEC"
 STEP_TO_START = 1
 
 # Channel display metadata. Exact labels remain authoritative for indexing.
-CHANNEL_LABEL_STYLE = "e_alias"
+CHANNEL_LABEL_STYLE = "exact"
 CHANNEL_ALIAS_MONTAGE = "standard_1005"
 CHANNEL_ALIAS_MAX_DISTANCE_M = 0.02
 
-# Reduce dense HydroCel-128 data to a conventional near-30 scalp layout before
-# connectivity. Exact selected labels remain E#; display labels use these names.
-CHANNEL_SELECTION_MODE = "standard_32"  # "standard_32" or "all"
+# TD-BRAIN restEC preprocessing already keeps the 26 standard scalp channels.
+CHANNEL_SELECTION_MODE = "all"  # "standard_32" or "all"
 CHANNEL_SOURCE_MONTAGE = "GSN-HydroCel-128"
 CHANNEL_SELECTION_MONTAGE = "standard_1005"
 CHANNEL_SELECTION_TARGETS = [
@@ -133,5 +132,5 @@ PVALUE_THRESHOLDS = [0.001, 0.01, 0.05]
 # ============================================================================
 # CHANNELS TO DROP
 # ============================================================================
-CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
-# CHANNELS_TO_DROP = []
+# CHANNELS_TO_DROP = ['23A-23R', '24A-24R', 'A2-A1']
+CHANNELS_TO_DROP = []

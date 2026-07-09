@@ -51,18 +51,18 @@ NSGA_CONFIG = {
     'mutation_eta': 20.0,             # Distribution index for polynomial mutation
     'seed': None,                     # Random seed for reproducibility (None = random)
 }
-OPTIMIZATION_N_JOBS = 12  # None: use all available CPU cores, 1: disable multiprocessing
+OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
 
 # Optional patient filtering before optimization.
 # Generate this ranking with plot_svm_margin_rejection_3d.py.
-PATIENT_REJECTION_PERCENT = 50
+PATIENT_REJECTION_PERCENT = 0
 PATIENT_REJECTION_PERCENT_BY_BAND = {
-    'delta': 50,
-    'alpha': 50,
-    'beta': 50,
+    'delta': 0,
+    'alpha': 0,
+    'beta': 0,
 }
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
     OUTPUT_DIR,
