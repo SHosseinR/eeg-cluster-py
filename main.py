@@ -17,6 +17,7 @@ from config import (
     CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
 )
 from data_loader import load_group_data, verify_data_consistency
+from channel_metadata import save_channel_metadata, load_channel_metadata
 from signal_processing import process_subject_epochs
 from connectivity import compute_all_connectivity
 from network_measures import compute_network_measures_for_subjects, compute_all_network_measures
@@ -90,6 +91,12 @@ def main():
         all_data = healthy_data + patient_data
         if not verify_data_consistency(all_data):
             raise ValueError("Data consistency check failed!")
+
+        channel_metadata = all_data[0].get('channel_metadata') if all_data else None
+        if channel_metadata:
+            channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
+            save_channel_metadata(channel_metadata, channel_metadata_path)
+            print(f"\nSaved channel metadata: {channel_metadata_path}")
         
     # ========================================================================
     # STEP 2: SIGNAL PROCESSING (EPOCHING & FILTERING)
@@ -112,7 +119,10 @@ def main():
                 all_subjects_filtered[group_name][subject_id] = {
                     'filtered_epochs': filtered_epochs,
                     'fs': subject['fs'],
-                    'channels': subject['channels']
+                    'channels': subject['channels'],
+                    'channel_names': subject.get('channel_names', subject['channels']),
+                    'channel_display_names': subject.get('channel_display_names', subject['channels']),
+                    'channel_metadata': subject.get('channel_metadata')
                 }
         
     # ========================================================================
@@ -170,6 +180,20 @@ def main():
         np.save(os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'), 
                 connectivity_matrices, allow_pickle=True)
         print(f"\nSaved connectivity matrices")
+
+        if 'channel_metadata' in locals() and channel_metadata:
+            analysis_metadata = {
+                'channel_metadata': channel_metadata,
+                'frequency_bands': FREQUENCY_BANDS,
+                'connectivity_methods': CONNECTIVITY_METHODS,
+                'selected_method': SELECTED_METHOD,
+            }
+            np.save(
+                os.path.join(OUTPUT_DIR, 'data', 'analysis_metadata.npy'),
+                analysis_metadata,
+                allow_pickle=True
+            )
+            print("Saved analysis metadata")
         
     # ========================================================================
     # STEP 4: VISUALIZATIONS 1-3
@@ -479,6 +503,16 @@ def main():
     n_patients = len(network_measures.get('Patient', {})) if 'network_measures' in locals() else 0
 
     n_channels = 'N/A'
+    channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
+    if 'channel_metadata' not in locals() and os.path.exists(channel_metadata_path):
+        try:
+            channel_metadata = load_channel_metadata(channel_metadata_path)
+        except Exception:
+            channel_metadata = None
+
+    if 'channel_metadata' in locals() and channel_metadata:
+        n_channels = len(channel_metadata.get('channel_names', [])) or 'N/A'
+
     if 'connectivity_matrices' in locals():
         for group_data in connectivity_matrices.values():
             for subject_data in group_data.values():

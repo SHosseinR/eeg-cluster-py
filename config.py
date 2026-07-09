@@ -2,18 +2,46 @@
 Configuration file for EEG connectivity analysis
 """
 
+import os
+
 import numpy as np
 
 # ============================================================================
 # PATH CONFIGURATION
 # ============================================================================
-# HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"  # UPDATE THIS
-# PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"      # UPDATE THIS
-# OUTPUT_DIR = "./results-ADHD" 
-HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\HC"  # UPDATE THIS
-PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\paper-data\\EC\\set2\\MDD"      # UPDATE THIS
-OUTPUT_DIR = "./results-MDD-2" 
-STEP_TO_START = 4
+# HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"
+# PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"
+# OUTPUT_DIR = "./results-ADHD"
+MODMA_PREPROCESSED_ROOT = (
+    "D:\\university\\projects\\graph-opt\\mdd-dataset-2\\MODMA_EEG_BIDS_format\\"
+    "MODMA_EEG_BIDS_format\\output\\preprocessed_resting_state_full"
+)
+HC_DATA_PATH = os.path.join(MODMA_PREPROCESSED_ROOT, "Control")
+PATIENT_DATA_PATH = os.path.join(MODMA_PREPROCESSED_ROOT, "Patient")
+OUTPUT_DIR = "./results-MODMA-resting"
+STEP_TO_START = 1
+
+# Channel display metadata. Exact labels remain authoritative for indexing.
+CHANNEL_LABEL_STYLE = "e_alias"
+CHANNEL_ALIAS_MONTAGE = "standard_1005"
+CHANNEL_ALIAS_MAX_DISTANCE_M = 0.02
+
+# Reduce dense HydroCel-128 data to a conventional near-30 scalp layout before
+# connectivity. Exact selected labels remain E#; display labels use these names.
+CHANNEL_SELECTION_MODE = "standard_32"  # "standard_32" or "all"
+CHANNEL_SOURCE_MONTAGE = "GSN-HydroCel-128"
+CHANNEL_SELECTION_MONTAGE = "standard_1005"
+CHANNEL_SELECTION_TARGETS = [
+    "Fp1", "Fp2",
+    "AF3", "AF4",
+    "F7", "F3", "Fz", "F4", "F8",
+    "FC5", "FC1", "FC2", "FC6",
+    "T7", "C3", "Cz", "C4", "T8",
+    "CP5", "CP1", "CP2", "CP6",
+    "P7", "P3", "Pz", "P4", "P8",
+    "PO3", "PO4",
+    "O1", "Oz", "O2",
+]
 
 # ============================================================================
 # SIGNAL PROCESSING PARAMETERS

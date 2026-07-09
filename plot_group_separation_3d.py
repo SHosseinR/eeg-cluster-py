@@ -9,6 +9,8 @@ Healthy vs Patient subjects in a 3D scatter plot.
 import argparse
 import os
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from config import OUTPUT_DIR, FREQUENCY_BANDS, SELECTED_METHOD

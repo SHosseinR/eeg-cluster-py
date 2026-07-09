@@ -35,6 +35,9 @@ OPTIMIZATION_MEASURES_BY_BAND = {
     'delta': ['cv_weight', 'diameter', 'mean_weight'],
     'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
     'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+    # 'delta': ['std_weight', 'median_weight', 'betweenness_centrality'],
+    # 'alpha': ['small_worldness', 'spectral_radius', 'std_weight'],
+    # 'beta': ['betweenness_centrality', 'diameter', 'cv_weight'],
 }
 # OPTIMIZATION_MEASURES_BY_BAND = {}
 
@@ -48,18 +51,18 @@ NSGA_CONFIG = {
     'mutation_eta': 20.0,             # Distribution index for polynomial mutation
     'seed': None,                     # Random seed for reproducibility (None = random)
 }
-OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
+OPTIMIZATION_N_JOBS = 12  # None: use all available CPU cores, 1: disable multiprocessing
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
 
 # Optional patient filtering before optimization.
 # Generate this ranking with plot_svm_margin_rejection_3d.py.
-PATIENT_REJECTION_PERCENT = 0
+PATIENT_REJECTION_PERCENT = 50
 PATIENT_REJECTION_PERCENT_BY_BAND = {
-    'delta': 0,
-    'alpha': 0,
-    'beta': 0,
+    'delta': 50,
+    'alpha': 50,
+    'beta': 50,
 }
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
     OUTPUT_DIR,
@@ -118,9 +121,9 @@ PLASTICITY_CONFIG = {
 }
 
 # Debug/plotting defaults
-OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
+OPTIMIZATION_DEBUG_SUBJECT = 'sub-001'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = 'results-MDD-2/optimization-nsga-distance_to_gt'
+OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt')
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
-OPTIMIZATION_FIGURES_DIR = 'results-MDD-2/optimization-nsga-distance_to_gt/optimization/figures'
+OPTIMIZATION_FIGURES_DIR = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization', 'figures')

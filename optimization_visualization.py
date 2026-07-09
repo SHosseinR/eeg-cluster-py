@@ -2,10 +2,24 @@
 Visualization functions for NSGA-II optimization results
 """
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, List, Tuple
 import os
+
+from channel_metadata import get_display_channel_names
+
+
+def _resolve_channel_labels(optimization_results: Dict, channel_names: List[str]) -> List[str]:
+    n_nodes = len(channel_names) if channel_names is not None else None
+    for result in optimization_results.values():
+        if isinstance(result, dict):
+            labels = get_display_channel_names(result, n_nodes=n_nodes)
+            if labels:
+                return labels
+    return list(channel_names or [])
 
 
 def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = None) -> List[Dict]:
@@ -1287,6 +1301,7 @@ def plot_optimization_summary(optimization_results: Dict,
         Directory to save figures
     """
     os.makedirs(output_dir, exist_ok=True)
+    channel_names = _resolve_channel_labels(optimization_results, channel_names)
     
     print("\nGenerating optimization visualization plots...")
     
@@ -1379,6 +1394,7 @@ def create_optimization_report(optimization_results: Dict,
     output_path : str
         Path to save report
     """
+    channel_names = _resolve_channel_labels(optimization_results, channel_names)
     objective_mode = None
     healthy_baselines = None
     stored_measures = None

@@ -19,6 +19,7 @@ from optimization_config import (
     OPTIMIZATION_FIGURES_DIR,
     SIMULATION_CONFIG,
 )
+from channel_metadata import get_display_channel_names
 
 
 def _load_pickle_dict(path: str) -> Dict:
@@ -82,7 +83,9 @@ def _find_metadata(optimization_results: Dict) -> Optional[Dict]:
     for _, results in optimization_results.items():
         if not isinstance(results, dict):
             continue
-        if results.get("band_names") and results.get("channel_names"):
+        if results.get("band_names") and (
+            results.get("channel_display_names") or results.get("channel_names")
+        ):
             return results
     return None
 
@@ -444,7 +447,11 @@ def main() -> None:
         raise RuntimeError("Results file missing band_names/channel_names metadata")
 
     band_names = list(metadata["band_names"])
-    channel_names = list(metadata["channel_names"])
+    exact_channel_names = metadata.get("channel_names")
+    n_nodes = len(exact_channel_names) if exact_channel_names else int(metadata.get("n_nodes", 0))
+    channel_names = get_display_channel_names(metadata, n_nodes=n_nodes)
+    if not channel_names:
+        raise RuntimeError("Results file missing channel label metadata")
 
     leak_value = SIMULATION_CONFIG.get("leak")
 

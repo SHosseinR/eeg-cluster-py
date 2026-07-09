@@ -14,6 +14,8 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.feature_selection import RFE
 from sklearn.metrics import accuracy_score, balanced_accuracy_score

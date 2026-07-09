@@ -49,6 +49,8 @@ class EEGOptimizer:
                  channel_names: List[str],
                  selected_method: str,
                  optimization_measures: List[str],
+                 channel_display_names: Optional[List[str]] = None,
+                 channel_metadata: Optional[Dict] = None,
                  fixed_band_name: Optional[str] = None,
                  optimization_mode: str = None,
                  objective_mode: str = None,
@@ -70,6 +72,10 @@ class EEGOptimizer:
             Dict mapping band names to (low_freq, high_freq) tuples
         channel_names : list of str
             Names of EEG channels/nodes
+        channel_display_names : list of str, optional
+            Plot/report labels for EEG channels/nodes
+        channel_metadata : dict, optional
+            Full channel metadata audit record
         selected_method : str
             Connectivity method to use (e.g., 'plv', 'pdc', 'gc', 'psi')
         optimization_measures : list of str
@@ -92,6 +98,13 @@ class EEGOptimizer:
         self.subject_data = subject_data
         self.frequency_bands = frequency_bands
         self.channel_names = channel_names
+        self.channel_display_names = channel_display_names or list(channel_names)
+        if len(self.channel_display_names) != len(channel_names):
+            self.channel_display_names = list(channel_names)
+        self.channel_metadata = channel_metadata or {
+            'channel_names': list(channel_names),
+            'channel_display_names': list(self.channel_display_names),
+        }
         self.selected_method = selected_method
         self.optimization_measures = optimization_measures
         if len(self.optimization_measures) == 0:
@@ -676,6 +689,8 @@ class EEGOptimizer:
             'n_bands': self.n_bands,
             'band_names': self.band_names,
             'channel_names': self.channel_names,
+            'channel_display_names': self.channel_display_names,
+            'channel_metadata': self.channel_metadata,
             'optimization_mode': self.optimization_mode,
             'objective_mode': self.objective_mode,
             'optimization_measures': list(self.optimization_measures),
@@ -689,7 +704,8 @@ class EEGOptimizer:
         
         if verbose:
             print(f"\nBest solution:")
-            print(f"  Node: {best_solution['node']} ({self.channel_names[best_solution['node']]})")
+            node_idx = int(best_solution['node'])
+            print(f"  Node: {node_idx} ({self.channel_display_names[node_idx]})")
             print(f"  Band: {self.band_names[best_solution['band']]}")
             print(f"  Objectives: {best_solution['objectives']}")
         
@@ -794,6 +810,8 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
                                 channel_names: List[str],
                                 selected_method: str,
                                 optimization_measures: Optional[List[str]] = None,
+                                channel_display_names: Optional[List[str]] = None,
+                                channel_metadata: Optional[Dict] = None,
                                 fixed_band_name: Optional[str] = None) -> EEGOptimizer:
     """
     Create EEGOptimizer instance from configuration files.
@@ -810,6 +828,10 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         Frequency band definitions
     channel_names : list
         Channel names
+    channel_display_names : list, optional
+        Display channel labels for plots/reports
+    channel_metadata : dict, optional
+        Full channel metadata audit record
     selected_method : str
         Selected connectivity method
         
@@ -824,6 +846,8 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         subject_data=subject_data,
         frequency_bands=frequency_bands,
         channel_names=channel_names,
+        channel_display_names=channel_display_names,
+        channel_metadata=channel_metadata,
         selected_method=selected_method,
         optimization_measures=optimization_measures or OPTIMIZATION_MEASURES,
         fixed_band_name=fixed_band_name,

@@ -8,6 +8,8 @@ import os
 from typing import Dict, List, Optional
 
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from optimization_config import OPTIMIZATION_OUTPUT_DIR, OPTIMIZATION_RESULTS_FILE

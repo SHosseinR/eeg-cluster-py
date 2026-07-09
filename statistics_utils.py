@@ -373,7 +373,10 @@ def correct_multiple_comparisons(pvalues, method='fdr_bh'):
 
 def _base_electrode_name(channel_name):
     """Return the EEG electrode token before references such as '-LE'."""
-    token = re.split(r'[\s_\-]+', str(channel_name).strip())[0]
+    label = str(channel_name).strip()
+    if "/" in label:
+        label = label.split("/", 1)[1]
+    token = re.split(r'[\s_\-]+', label)[0]
     return token.upper()
 
 

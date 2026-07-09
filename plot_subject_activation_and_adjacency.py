@@ -9,6 +9,8 @@ import os
 from typing import Dict, Optional, Tuple
 
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from config import OUTPUT_DIR, SELECTED_METHOD
@@ -22,6 +24,7 @@ from optimization_config import (
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
+from channel_metadata import get_display_channel_names
 
 
 def _load_pickle_dict(path: str) -> Dict:
@@ -159,9 +162,11 @@ def main() -> None:
         raise RuntimeError(f"Missing baseline_activation for subject: {subject_id}")
 
     band_names = results.get("band_names")
-    channel_names = results.get("channel_names")
-    if band_names is None or channel_names is None:
-        raise RuntimeError("Missing band_names or channel_names in results.")
+    exact_channel_names = results.get("channel_names")
+    n_nodes = len(exact_channel_names) if exact_channel_names is not None else len(baseline_activation)
+    channel_names = get_display_channel_names(results, n_nodes=n_nodes)
+    if band_names is None:
+        raise RuntimeError("Missing band_names in results.")
 
     band_idx = int(best_solution["band"])
     band_name = best_solution.get("band_name") or band_names[band_idx]
@@ -195,7 +200,9 @@ def main() -> None:
         stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
         leak=float(SIMULATION_CONFIG.get("leak", 0.0)),
     )
-    print(f'{best_solution["node"]=}')
+    node_idx = int(best_solution["node"])
+    node_label = channel_names[node_idx] if node_idx < len(channel_names) else f"Node {node_idx}"
+    print(f'{best_solution["node"]=} ({node_label})')
 
     if PLASTICITY_CONFIG.get("plasticity_enabled", True):
         updated_matrix = compute_plasticity_effect(
@@ -224,7 +231,7 @@ def main() -> None:
         ax.plot(time, delta[idx, :], linewidth=1.0, alpha=0.8, label=label)
 
     ax.set_title(
-        f"Activation Change Over Time - {subject_id} ({band_name}, node {best_solution['node']})"
+        f"Activation Change Over Time - {subject_id} ({band_name}, node {node_label})"
     )
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Activation change (x - baseline)")

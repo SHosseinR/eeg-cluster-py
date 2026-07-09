@@ -4,6 +4,7 @@ Main script to run NSGA-II optimization for EEG connectivity
 import math
 import os
 import sys
+os.environ.setdefault("MPLBACKEND", "Agg")
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -36,6 +37,7 @@ from statistics_utils import (
 
 # Import data loading (assuming these exist in your main pipeline)
 from data_loader import load_group_data
+from channel_metadata import get_display_channel_names
 
 
 def create_output_directories():
@@ -63,6 +65,10 @@ def load_data_for_optimization():
         Raw subject data for baseline activation
     channel_names : list
         EEG channel names
+    channel_display_names : list
+        Plot/report channel labels
+    channel_metadata : dict
+        Full channel metadata audit record
     """
     print("\n" + "="*80)
     print("LOADING DATA FOR OPTIMIZATION")
@@ -103,6 +109,9 @@ def load_data_for_optimization():
             'data': subject['data'],
             'fs': subject['fs'],
             'channels': subject['channels'],
+            'channel_names': subject.get('channel_names', subject['channels']),
+            'channel_display_names': subject.get('channel_display_names', subject['channels']),
+            'channel_metadata': subject.get('channel_metadata'),
             'group': 'Healthy'
         }
     
@@ -111,6 +120,9 @@ def load_data_for_optimization():
             'data': subject['data'],
             'fs': subject['fs'],
             'channels': subject['channels'],
+            'channel_names': subject.get('channel_names', subject['channels']),
+            'channel_display_names': subject.get('channel_display_names', subject['channels']),
+            'channel_metadata': subject.get('channel_metadata'),
             'group': 'Patient'
         }
     
@@ -119,10 +131,22 @@ def load_data_for_optimization():
     # Get channel names (assuming all subjects have same channels)
     first_subject = list(subject_data.values())[0]
     channel_names = first_subject['channels']
+    channel_metadata = first_subject.get('channel_metadata') or {
+        'channel_names': channel_names,
+        'channel_display_names': first_subject.get('channel_display_names', channel_names),
+    }
+    channel_display_names = get_display_channel_names(channel_metadata, n_nodes=len(channel_names))
     
     print(f"✓ Number of channels: {len(channel_names)}")
     
-    return connectivity_matrices, network_measures, subject_data, channel_names
+    return (
+        connectivity_matrices,
+        network_measures,
+        subject_data,
+        channel_names,
+        channel_display_names,
+        channel_metadata
+    )
 
 
 def _get_measures_for_band(band_name: str) -> List[str]:
@@ -399,7 +423,7 @@ def main():
     
     # Load data
     try:
-        connectivity_matrices, network_measures, subject_data, channel_names = \
+        connectivity_matrices, network_measures, subject_data, channel_names, channel_display_names, channel_metadata = \
             load_data_for_optimization()
     except Exception as e:
         print(f"\nERROR loading data: {str(e)}")
@@ -479,6 +503,8 @@ def main():
                 subject_data=band_subject_data,
                 frequency_bands=FREQUENCY_BANDS,
                 channel_names=channel_names,
+                channel_display_names=channel_display_names,
+                channel_metadata=channel_metadata,
                 selected_method=SELECTED_METHOD,
                 optimization_measures=band_measures,
                 fixed_band_name=band_name
@@ -511,7 +537,7 @@ def main():
             try:
                 candidate_stats_outputs.append(save_candidate_region_selection_stats(
                     optimization_results,
-                    channel_names,
+                    channel_display_names,
                     OPTIMIZATION_OUTPUT_DIR,
                     figures_dir=OPTIMIZATION_FIGURES_DIR,
                     file_prefix=band_name,
@@ -538,7 +564,7 @@ def main():
         try:
             plot_optimization_summary(
                 optimization_results=combined_results,
-                channel_names=channel_names,
+                channel_names=channel_display_names,
                 band_names=list(FREQUENCY_BANDS.keys()),
                 optimization_measures=plot_measures,
                 output_dir=OPTIMIZATION_FIGURES_DIR,
@@ -557,7 +583,7 @@ def main():
         try:
             create_optimization_report(
                 optimization_results=combined_results,
-                channel_names=channel_names,
+                channel_names=channel_display_names,
                 band_names=list(FREQUENCY_BANDS.keys()),
                 optimization_measures=plot_measures,
                 optimization_directions={},
@@ -572,7 +598,7 @@ def main():
         try:
             candidate_stats_outputs.append(save_candidate_region_selection_stats(
                 combined_results,
-                channel_names,
+                channel_display_names,
                 OPTIMIZATION_OUTPUT_DIR,
                 figures_dir=OPTIMIZATION_FIGURES_DIR,
                 label="combined across bands"
@@ -593,6 +619,8 @@ def main():
             subject_data=subject_data,
             frequency_bands=FREQUENCY_BANDS,
             channel_names=channel_names,
+            channel_display_names=channel_display_names,
+            channel_metadata=channel_metadata,
             selected_method=SELECTED_METHOD
         )
 
@@ -636,7 +664,7 @@ def main():
         try:
             plot_optimization_summary(
                 optimization_results=optimization_results,
-                channel_names=channel_names,
+                channel_names=channel_display_names,
                 band_names=list(FREQUENCY_BANDS.keys()),
                 optimization_measures=OPTIMIZATION_MEASURES,
                 output_dir=OPTIMIZATION_FIGURES_DIR,
@@ -656,7 +684,7 @@ def main():
         try:
             create_optimization_report(
                 optimization_results=optimization_results,
-                channel_names=channel_names,
+                channel_names=channel_display_names,
                 band_names=list(FREQUENCY_BANDS.keys()),
                 optimization_measures=OPTIMIZATION_MEASURES,
                 optimization_directions=optimizer.optimization_directions,
@@ -671,7 +699,7 @@ def main():
         try:
             candidate_stats_outputs = [save_candidate_region_selection_stats(
                 optimization_results,
-                channel_names,
+                channel_display_names,
                 OPTIMIZATION_OUTPUT_DIR,
                 figures_dir=OPTIMIZATION_FIGURES_DIR
             )]
