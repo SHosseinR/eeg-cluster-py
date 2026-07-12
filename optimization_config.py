@@ -33,9 +33,9 @@ OPTIMIZATION_PER_BAND = True
 # Example:
 OPTIMIZATION_MEASURES_BY_BAND = {
     #results-MDD-5
-    'delta': ['cv_weight', 'min_weight', 'diameter'],
-    'alpha': ['min_weight', 'small_worldness', 'betweenness_centrality'],
-    'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+    'delta': ['cv_weight', 'min_weight', 'small_worldness'],
+    'alpha': ['min_weight', 'transitivity', 'clustering_coefficient'],
+    'beta': ['cv_weight', 'diameter', 'modularity'],
     # don't know wth is this!
     # 'delta': ['cv_weight', 'diameter', 'mean_weight'],
     # 'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
@@ -140,9 +140,10 @@ PLASTICITY_CONFIG = {
 }
 
 # Debug/plotting defaults
-OPTIMIZATION_DEBUG_SUBJECT = 'sub-88064657'
+# OPTIMIZATION_DEBUG_SUBJECT = 'sub-88064657'
+OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt-measure_same_as_results_MDD_5')
+OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt')
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
 OPTIMIZATION_FIGURES_DIR = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization', 'figures')

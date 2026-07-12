@@ -12,13 +12,10 @@ import numpy as np
 # HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"
 # PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"
 # OUTPUT_DIR = "./results-ADHD"
-TDBRAIN_PREPROCESSED_ROOT = (
-    "D:\\university\\projects\\graph-opt\\tbdbrain\\TDBRAIN_Dataset_V3_1\\"
-    "output\\preprocessed_tdbrain_restEC_set2"
-)
-HC_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "Healthy")
-PATIENT_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "MDD")
-OUTPUT_DIR = "./results-TDBRAIN-restEC"
+DATASET_ROOT = r"D:\university\projects\graph-opt\paper-data\EC\set2"
+HC_DATA_PATH = os.path.join(DATASET_ROOT, "HC")
+PATIENT_DATA_PATH = os.path.join(DATASET_ROOT, "MDD")
+OUTPUT_DIR = "./results-first-paper-dataset"
 STEP_TO_START = 1
 
 # Channel display metadata. Exact labels remain authoritative for indexing.
