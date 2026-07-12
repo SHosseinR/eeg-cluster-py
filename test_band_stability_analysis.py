@@ -14,7 +14,8 @@ from band_stability_analysis import (
     compute_cross_band_tests,
     run_band_stability_analysis,
 )
-from plot_band_stability_analysis import align_subject_cohort
+from optimization_config import OPTIMIZATION_OUTPUT_DIR
+from plot_band_stability_analysis import align_subject_cohort, parse_args
 
 
 def _synthetic_results(scales=None, n_subjects=8):
@@ -61,6 +62,10 @@ def _synthetic_results(scales=None, n_subjects=8):
 
 
 class BandStabilityAnalysisTests(unittest.TestCase):
+    def test_cli_uses_configured_results_dir_when_path_is_omitted(self):
+        self.assertEqual(parse_args([]).results_dir, OPTIMIZATION_OUTPUT_DIR)
+        self.assertEqual(parse_args(["explicit-results"]).results_dir, "explicit-results")
+
     def test_clear_winner_and_rank_probabilities(self):
         subject_df, _ = build_analysis_tables(_synthetic_results())
         summary = compute_band_summary(subject_df, n_resamples=200, random_seed=1)

@@ -1,0 +1,10 @@
+python main.py
+python plot_group_separation_3d.py
+python plot_svm_margin_rejection_3d.py
+
+python run_optimization.py
+python plot_best_closeness_per_subject.py
+python plot_subject_activation_and_adjacency.py
+python plot_optimization_metric_shift_3d.py
+python plot_weighted_node_band_interactive.py
+python plot_band_stability_analysis.py

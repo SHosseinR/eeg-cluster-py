@@ -121,8 +121,17 @@ SIMULATION_CONFIG = {
 # STIMULATION_AMPLITUDE_BOUNDS = (0.03, 0.3)
 # STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
 STIMULATION_DURATION_BOUNDS = (1, 30)
-STIMULATION_AMPLITUDE_BOUNDS = (0.1, 3.0)
+# Signed and fully configurable:
+#   (0.1, 3.0)   enhancement only
+#   (-3.0, -0.1) suppression only
+#   (-3.0, 3.0)  let the optimizer choose polarity (current default)
+STIMULATION_AMPLITUDE_BOUNDS = (-3.0, 3.0)
 STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
+
+# Hard feasibility bounds on raw final/baseline activation ratios. Candidates
+# outside this range are rejected by NSGA-II before the clipped ratios can make
+# extreme stimulation solutions look artificially equivalent.
+ACTIVATION_RATIO_FEASIBILITY_BOUNDS = (0.1, 10.0)
 
 # Plasticity parameters
 PLASTICITY_CONFIG = {

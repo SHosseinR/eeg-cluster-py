@@ -14,6 +14,28 @@ from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.termination import get_termination
 
 
+class ZeroAmplitudeAnchorSampling(FloatRandomSampling):
+    """Random sampling with one guaranteed no-stimulation candidate when allowed."""
+
+    def __init__(self, amplitude_index: int):
+        super().__init__()
+        self.amplitude_index = int(amplitude_index)
+
+    def _do(self, problem, n_samples, *args, random_state=None, **kwargs):
+        samples = super()._do(
+            problem, n_samples, *args, random_state=random_state, **kwargs
+        )
+        if (
+            n_samples > 0
+            and problem.xl[self.amplitude_index] <= 0.0
+            and problem.xu[self.amplitude_index] >= 0.0
+        ):
+            samples[0] = (problem.xl + problem.xu) / 2.0
+            samples[0, 0] = 0.0
+            samples[0, self.amplitude_index] = 0.0
+        return samples
+
+
 class EEGOptimizationProblem(Problem):
     """
     pymoo Problem definition for EEG optimization.
@@ -37,6 +59,7 @@ class EEGOptimizationProblem(Problem):
                  amplitude_bounds: tuple = (0.0, 2.0),
                  leak_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3,
+                 n_constraints: int = 0,
                  fixed_band_index: int = None):
         """
         Initialize EEG optimization problem.
@@ -60,13 +83,23 @@ class EEGOptimizationProblem(Problem):
         duration_min, duration_max = duration_bounds
         amplitude_min, amplitude_max = amplitude_bounds
         leak_min, leak_max = leak_bounds
+        for name, lower, upper in (
+            ("duration", duration_min, duration_max),
+            ("amplitude", amplitude_min, amplitude_max),
+            ("leak", leak_min, leak_max),
+        ):
+            if not np.isfinite(lower) or not np.isfinite(upper) or lower > upper:
+                raise ValueError(
+                    f"Invalid {name} bounds ({lower}, {upper}); bounds must be "
+                    "finite and ordered as (minimum, maximum)."
+                )
 
         if fixed_band_index is None:
             # Define problem with band as a decision variable
             super().__init__(
                 n_var=5,  # node, band, stimulation_duration, stimulation_amplitude, leak
                 n_obj=n_objectives,  # Number of objectives
-                n_constr=0,  # No constraints
+                n_ieq_constr=int(n_constraints),
                 xl=np.array([0.0, 0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
                 xu=np.array([
                     float(n_nodes - 1),
@@ -81,7 +114,7 @@ class EEGOptimizationProblem(Problem):
             super().__init__(
                 n_var=4,  # node, stimulation_duration, stimulation_amplitude, leak
                 n_obj=n_objectives,
-                n_constr=0,
+                n_ieq_constr=int(n_constraints),
                 xl=np.array([0.0, float(duration_min), float(amplitude_min), float(leak_min)]),
                 xu=np.array([
                     float(n_nodes - 1),
@@ -136,6 +169,7 @@ class EEGOptimizationProblem(Problem):
         """
         # Evaluate each individual
         objectives = []
+        constraints = []
         for x in X:
             node = int(np.clip(np.round(x[0]), 0, self.xu[0]))
             if self.fixed_band_index is None:
@@ -149,15 +183,31 @@ class EEGOptimizationProblem(Problem):
                 amplitude = float(x[2])
                 leak = float(x[3])
             if self._accepts_leak:
-                obj = self.evaluate_func(node, band, duration, amplitude, leak)
+                evaluation = self.evaluate_func(node, band, duration, amplitude, leak)
             elif self._accepts_continuous:
-                obj = self.evaluate_func(node, band, duration, amplitude)
+                evaluation = self.evaluate_func(node, band, duration, amplitude)
             else:
-                obj = self.evaluate_func(node, band)
+                evaluation = self.evaluate_func(node, band)
+
+            if isinstance(evaluation, tuple) and len(evaluation) == 2:
+                obj, constraint_values = evaluation
+            else:
+                obj = evaluation
+                constraint_values = np.zeros(self.n_ieq_constr, dtype=float)
             objectives.append(obj)
+            if self.n_ieq_constr:
+                constraint_values = np.asarray(constraint_values, dtype=float).reshape(-1)
+                if constraint_values.size != self.n_ieq_constr:
+                    raise ValueError(
+                        f"Expected {self.n_ieq_constr} constraint values, got "
+                        f"{constraint_values.size}."
+                    )
+                constraints.append(constraint_values)
         
         # Store objectives
         out["F"] = np.array(objectives)
+        if self.n_ieq_constr:
+            out["G"] = np.array(constraints)
 
 
 class NSGAIIOptimizer:
@@ -176,6 +226,8 @@ class NSGAIIOptimizer:
                  amplitude_bounds: tuple = (0.0, 2.0),
                  leak_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3,
+                 n_constraints: int = 0,
+                 activation_ratio_bounds: tuple = None,
                  population_size: int = 100,
                  n_generations: int = 50,
                  crossover_prob: float = 0.9,
@@ -232,6 +284,8 @@ class NSGAIIOptimizer:
         self.seed = seed
         self.verbose = verbose
         self.fixed_band_index = fixed_band_index
+        self.n_constraints = int(n_constraints)
+        self.activation_ratio_bounds = activation_ratio_bounds
         
         # Create problem
         self.problem = EEGOptimizationProblem(
@@ -242,6 +296,7 @@ class NSGAIIOptimizer:
             amplitude_bounds=amplitude_bounds,
             leak_bounds=leak_bounds,
             n_objectives=self.n_objectives,
+            n_constraints=self.n_constraints,
             fixed_band_index=fixed_band_index
         )
         
@@ -250,9 +305,10 @@ class NSGAIIOptimizer:
             mutation_prob = 1.0 / self.problem.n_var
         
         # Create algorithm
+        amplitude_index = 3 if fixed_band_index is None else 2
         self.algorithm = NSGA2(
             pop_size=population_size,
-            sampling=FloatRandomSampling(),
+            sampling=ZeroAmplitudeAnchorSampling(amplitude_index),
             crossover=SBX(prob=crossover_prob, eta=crossover_eta, vtype=float),
             mutation=PM(prob=mutation_prob, eta=mutation_eta, vtype=float),
             eliminate_duplicates=True
@@ -267,16 +323,25 @@ class NSGAIIOptimizer:
         self.history = []
         self.all_solutions = []
 
-    def _build_solutions(self, X: np.ndarray, F: np.ndarray) -> List[Dict]:
+    def _build_solutions(
+        self,
+        X: np.ndarray,
+        F: np.ndarray,
+        G: np.ndarray = None,
+    ) -> List[Dict]:
         if X is None or F is None:
             return []
 
         if X.ndim == 1:
             X = X.reshape(1, -1)
             F = F.reshape(1, -1)
+        if G is None:
+            G = np.zeros((len(X), self.n_constraints), dtype=float)
+        elif G.ndim == 1:
+            G = G.reshape(1, -1)
 
         solutions = []
-        for x, f in zip(X, F):
+        for x, f, g in zip(X, F, G):
             node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
             if self.fixed_band_index is None:
                 band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
@@ -289,15 +354,30 @@ class NSGAIIOptimizer:
                 amplitude = float(x[2])
                 leak = float(x[3])
             band_name = self.band_names[band] if band < len(self.band_names) else None
-            solutions.append({
+            constraint_values = np.asarray(g, dtype=float).reshape(-1)
+            constraint_violation = float(np.sum(np.maximum(constraint_values, 0.0)))
+            solution = {
                 'node': node,
                 'band': band,
                 'band_name': band_name,
                 'stimulation_duration': duration,
                 'stimulation_amplitude': amplitude,
                 'leak': leak,
-                'objectives': f
-            })
+                'objectives': f,
+                'constraint_values': constraint_values,
+                'constraint_violation': constraint_violation,
+                'feasible': bool(constraint_violation <= 1e-10),
+                'stimulation_polarity': (
+                    'suppression' if amplitude < -1e-10 else
+                    'enhancement' if amplitude > 1e-10 else
+                    'zero'
+                )
+            }
+            if self.activation_ratio_bounds is not None and constraint_values.size >= 2:
+                ratio_min, ratio_max = self.activation_ratio_bounds
+                solution['raw_activation_ratio_min'] = float(ratio_min - constraint_values[0])
+                solution['raw_activation_ratio_max'] = float(ratio_max + constraint_values[1])
+            solutions.append(solution)
 
         return solutions
     
@@ -348,11 +428,14 @@ class NSGAIIOptimizer:
         )
         
         # Extract Pareto front
-        self.best_front = self._build_solutions(self.result.X, self.result.F)
+        self.best_front = self._build_solutions(
+            self.result.X, self.result.F, getattr(self.result, 'G', None)
+        )
 
         # Collect all solutions from history (fallback to final population)
         all_X = []
         all_F = []
+        all_G = []
         if hasattr(self.result, 'history') and self.result.history is not None:
             for h in self.result.history:
                 pop = getattr(h, 'pop', None)
@@ -367,6 +450,12 @@ class NSGAIIOptimizer:
                     F = F.reshape(1, -1)
                 all_X.append(X)
                 all_F.append(F)
+                G = pop.get("G")
+                if G is None:
+                    G = np.zeros((len(X), self.n_constraints), dtype=float)
+                elif G.ndim == 1:
+                    G = G.reshape(1, -1)
+                all_G.append(G)
 
         if not all_X and getattr(self.result, 'pop', None) is not None:
             X = self.result.pop.get("X")
@@ -377,11 +466,18 @@ class NSGAIIOptimizer:
                     F = F.reshape(1, -1)
                 all_X = [X]
                 all_F = [F]
+                G = self.result.pop.get("G")
+                if G is None:
+                    G = np.zeros((len(X), self.n_constraints), dtype=float)
+                elif G.ndim == 1:
+                    G = G.reshape(1, -1)
+                all_G = [G]
 
         if all_X:
             all_X = np.vstack(all_X)
             all_F = np.vstack(all_F)
-            self.all_solutions = self._build_solutions(all_X, all_F)
+            all_G = np.vstack(all_G)
+            self.all_solutions = self._build_solutions(all_X, all_F, all_G)
         else:
             self.all_solutions = list(self.best_front)
         

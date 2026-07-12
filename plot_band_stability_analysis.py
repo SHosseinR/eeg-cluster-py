@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from band_stability_analysis import run_band_stability_analysis
+from optimization_config import OPTIMIZATION_OUTPUT_DIR
 
 
 RESULT_SUFFIX = "_optimization_results.npy"
@@ -94,13 +95,18 @@ def align_subject_cohort(results_by_band: Dict, policy: str = "intersection"):
     return aligned, pd.DataFrame(rows)
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Create standalone within-band and cross-band optimization plots."
     )
     parser.add_argument(
         "results_dir",
-        help="Directory containing <band>_optimization_results.npy files.",
+        nargs="?",
+        default=OPTIMIZATION_OUTPUT_DIR,
+        help=(
+            "Directory containing <band>_optimization_results.npy files. "
+            "Default: OPTIMIZATION_OUTPUT_DIR from optimization_config.py."
+        ),
     )
     parser.add_argument(
         "--bands",
@@ -121,7 +127,7 @@ def parse_args():
     )
     parser.add_argument("--bootstrap-resamples", type=int, default=10_000)
     parser.add_argument("--random-seed", type=int, default=42)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main():

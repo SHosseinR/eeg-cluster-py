@@ -9,7 +9,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
-    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, STIMULATION_LEAK_BOUNDS, OPTIMIZATION_MODE,
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, STIMULATION_LEAK_BOUNDS,
+    ACTIVATION_RATIO_FEASIBILITY_BOUNDS, OPTIMIZATION_MODE,
     GRID_USE_PARETO_ONLY, OPTIMIZATION_OBJECTIVE_MODE
 )
 from state_space_simulation import run_full_simulation
@@ -144,6 +145,17 @@ class EEGOptimizer:
         self.nsga_config = nsga_config or NSGA_CONFIG
         self.simulation_config = simulation_config or SIMULATION_CONFIG
         self.plasticity_config = plasticity_config or PLASTICITY_CONFIG
+        ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
+        if (
+            not np.isfinite(ratio_lower)
+            or not np.isfinite(ratio_upper)
+            or ratio_lower <= 0
+            or ratio_lower >= ratio_upper
+        ):
+            raise ValueError(
+                "ACTIVATION_RATIO_FEASIBILITY_BOUNDS must contain finite, "
+                "positive, increasing values."
+            )
         
         # Derived parameters
         self.n_nodes = len(channel_names)
@@ -325,7 +337,7 @@ class EEGOptimizer:
         ) -> np.ndarray:
             if self.fixed_band_index is not None:
                 band_idx = self.fixed_band_index
-            objectives, _ = self._evaluate_solution_details(
+            objectives, _, details = self._evaluate_solution_details(
                 subject_id=subject_id,
                 baseline_activation=baseline_activation,
                 node=node,
@@ -334,7 +346,7 @@ class EEGOptimizer:
                 stimulation_amplitude=stimulation_amplitude,
                 stimulation_leak=stimulation_leak
             )
-            return objectives
+            return objectives, details['constraint_values']
 
         def evaluate_with_details(
             node: int,
@@ -342,7 +354,7 @@ class EEGOptimizer:
             stimulation_duration: float = None,
             stimulation_amplitude: float = None,
             stimulation_leak: float = None
-        ) -> Tuple[np.ndarray, np.ndarray]:
+        ) -> Tuple[np.ndarray, np.ndarray, Dict]:
             if self.fixed_band_index is not None:
                 band_idx = self.fixed_band_index
             return self._evaluate_solution_details(
@@ -384,8 +396,8 @@ class EEGOptimizer:
         stimulation_duration: float = None,
         stimulation_amplitude: float = None,
         stimulation_leak: float = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Evaluate objectives and return raw measure values."""
+    ) -> Tuple[np.ndarray, np.ndarray, Dict]:
+        """Evaluate objectives, raw measures, and trajectory feasibility."""
         from network_measures import measure_functions
 
         band_name = self.band_names[band_idx]
@@ -410,6 +422,26 @@ class EEGOptimizer:
             leak=stimulation_leak
         )
 
+        raw_ratios = np.asarray(sim_results['raw_activation_ratios'], dtype=float)
+        ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
+        constraint_values = np.array([
+            float(ratio_lower) - float(np.min(raw_ratios)),
+            float(np.max(raw_ratios)) - float(ratio_upper),
+        ], dtype=float)
+        constraint_violation = float(np.sum(np.maximum(constraint_values, 0.0)))
+        feasibility_details = {
+            'constraint_values': constraint_values,
+            'constraint_violation': constraint_violation,
+            'feasible': bool(constraint_violation <= 1e-10),
+            'raw_activation_ratio_min': float(np.min(raw_ratios)),
+            'raw_activation_ratio_max': float(np.max(raw_ratios)),
+            'stimulation_polarity': (
+                'suppression' if stimulation_amplitude < -1e-10 else
+                'enhancement' if stimulation_amplitude > 1e-10 else
+                'zero'
+            ),
+        }
+
         if self.plasticity_config['plasticity_enabled']:
             updated_matrix = compute_plasticity_effect(
                 adjacency_matrix=original_matrix,
@@ -427,7 +459,7 @@ class EEGOptimizer:
             measure_values.append(float(measure_value))
 
         objectives = self._compute_objectives_from_measures(measure_values)
-        return objectives, np.array(measure_values, dtype=float)
+        return objectives, np.array(measure_values, dtype=float), feasibility_details
 
     def _extract_initial_metrics(self, subject_id: str, band_name: str) -> Optional[np.ndarray]:
         """Extract baseline metrics from precomputed network measures."""
@@ -464,6 +496,9 @@ class EEGOptimizer:
         if not solutions:
             return []
 
+        solutions = [sol for sol in solutions if sol.get('feasible', True)]
+        if not solutions:
+            return []
         objectives = [np.asarray(sol['objectives'], dtype=float) for sol in solutions]
         n_solutions = len(solutions)
         is_dominated = [False] * n_solutions
@@ -482,6 +517,7 @@ class EEGOptimizer:
 
     def _select_best_solution(self, best_front: List[Dict]) -> Dict:
         """Select the best solution from a candidate list by distance to ideal point."""
+        best_front = [sol for sol in best_front if sol.get('feasible', True)]
         if not best_front:
             return None
         if len(best_front) == 1:
@@ -519,22 +555,24 @@ class EEGOptimizer:
         solutions = []
         for node in range(self.n_nodes):
             for band_idx in range(self.n_bands):
-                objectives, measure_values = evaluate_func(node, band_idx)
+                objectives, measure_values, details = evaluate_func(node, band_idx)
                 global_band_idx = (
                     self.fixed_band_index
                     if self.fixed_band_index is not None
                     else band_idx
                 )
-                solutions.append({
+                solution = {
                     'node': node,
                     'band': global_band_idx,
                     'band_name': self.band_names[global_band_idx],
-                    'stimulation_duration': None,
-                    'stimulation_amplitude': None,
+                    'stimulation_duration': duration,
+                    'stimulation_amplitude': amplitude,
                     'leak': leak,
                     'objectives': objectives,
                     'measure_values': measure_values
-                })
+                }
+                solution.update(details)
+                solutions.append(solution)
 
         best_front = self._compute_pareto_front(solutions)
         history = []
@@ -556,6 +594,7 @@ class EEGOptimizer:
         ranked : list of dict
             Ranked solutions with added 'rank', 'distance', and 'strength'
         """
+        best_front = [sol for sol in best_front if sol.get('feasible', True)]
         if not best_front:
             return []
 
@@ -586,6 +625,12 @@ class EEGOptimizer:
                 'stimulation_amplitude': sol.get('stimulation_amplitude'),
                 'leak': sol.get('leak'),
                 'objectives': sol['objectives'],
+                'constraint_values': sol.get('constraint_values'),
+                'constraint_violation': sol.get('constraint_violation', 0.0),
+                'feasible': sol.get('feasible', True),
+                'raw_activation_ratio_min': sol.get('raw_activation_ratio_min'),
+                'raw_activation_ratio_max': sol.get('raw_activation_ratio_max'),
+                'stimulation_polarity': sol.get('stimulation_polarity'),
                 'distance': float(distances[idx]),
                 'rank': rank,
                 'strength': 1.0 / float(rank)
@@ -653,13 +698,18 @@ class EEGOptimizer:
                 band_names=self.band_names,
                 evaluate_func=evaluate_func,
                 n_objectives=len(self.optimization_measures),
+                n_constraints=2,
+                activation_ratio_bounds=ACTIVATION_RATIO_FEASIBILITY_BOUNDS,
                 duration_bounds=STIMULATION_DURATION_BOUNDS,
                 amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
                 leak_bounds=STIMULATION_LEAK_BOUNDS,
                 population_size=self.nsga_config['population_size'],
                 n_generations=self.nsga_config['n_generations'],
                 crossover_prob=self.nsga_config['crossover_prob'],
+                crossover_eta=self.nsga_config.get('crossover_eta', 15.0),
                 mutation_prob=self.nsga_config['mutation_prob'],
+                mutation_eta=self.nsga_config.get('mutation_eta', 20.0),
+                seed=self.nsga_config.get('seed'),
                 # tournament_size=self.nsga_config['tournament_size']
                 fixed_band_index=self.fixed_band_index
             )
@@ -672,6 +722,13 @@ class EEGOptimizer:
             # Get single best solution (closest to GT or ideal point)
             ranking_pool = best_front if GRID_USE_PARETO_ONLY else all_solutions
             best_solution = self._select_best_solution(ranking_pool)
+
+        if best_solution is None:
+            raise RuntimeError(
+                "No feasible stimulation solution was found. Adjust "
+                "STIMULATION_AMPLITUDE_BOUNDS, stimulation duration/leak bounds, "
+                "or ACTIVATION_RATIO_FEASIBILITY_BOUNDS."
+            )
 
         # Rank top solutions using distance-to-ideal (strength = 1 / rank)
         top_solutions = self._rank_solutions(ranking_pool, OPTIMIZATION_TOP_K)
@@ -686,7 +743,7 @@ class EEGOptimizer:
             if 'measure_values' in best_solution:
                 final_metrics = np.array(best_solution['measure_values'], dtype=float)
             else:
-                objectives, measure_values = evaluate_with_details(
+                objectives, measure_values, details = evaluate_with_details(
                     node=int(best_solution['node']),
                     band_idx=band_idx,
                     stimulation_duration=best_solution.get('stimulation_duration'),
@@ -695,6 +752,7 @@ class EEGOptimizer:
                 )
                 best_solution['objectives'] = objectives
                 best_solution['measure_values'] = measure_values.tolist()
+                best_solution.update(details)
                 final_metrics = measure_values
         
         # Package results
@@ -717,6 +775,8 @@ class EEGOptimizer:
             'objective_mode': self.objective_mode,
             'optimization_measures': list(self.optimization_measures),
             'optimization_directions': dict(self.optimization_directions),
+            'stimulation_amplitude_bounds': tuple(STIMULATION_AMPLITUDE_BOUNDS),
+            'activation_ratio_feasibility_bounds': tuple(ACTIVATION_RATIO_FEASIBILITY_BOUNDS),
             'healthy_measure_baselines': dict(self.healthy_measure_baselines),
             'fixed_band_name': self.fixed_band_name,
             'fixed_band_index': self.fixed_band_index,
@@ -724,7 +784,7 @@ class EEGOptimizer:
             'final_metrics': final_metrics.tolist() if final_metrics is not None else None
         }
         
-        if verbose:
+        if verbose and best_solution is not None:
             print(f"\nBest solution:")
             node_idx = int(best_solution['node'])
             print(f"  Node: {node_idx} ({self.channel_display_names[node_idx]})")

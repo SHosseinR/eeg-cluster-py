@@ -171,7 +171,7 @@ def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001, leak=0.0):
     return x, x_final
 
 
-def compute_activation_changes(x_baseline, x_final):
+def compute_activation_changes(x_baseline, x_final, return_raw=False):
     """
     Compute relative change in node activations after stimulation.
     
@@ -187,16 +187,21 @@ def compute_activation_changes(x_baseline, x_final):
     activation_ratios : ndarray, shape (n_nodes,)
         Ratio of change for each node (1.0 = no change, >1.0 = increase, <1.0 = decrease)
         Values are clipped to avoid extreme ratios
+    raw_activation_ratios : ndarray, shape (n_nodes,), optional
+        Unclipped ratios, returned with ``activation_ratios`` when
+        ``return_raw=True``.
     """
     # Compute ratio: final / baseline
     # Add small epsilon to avoid division by zero
     # print(f'{x_baseline=}, {x_final=}')
     epsilon = 1e-10
-    activation_ratios = (x_final + epsilon) / (x_baseline + epsilon)
+    raw_activation_ratios = (x_final + epsilon) / (x_baseline + epsilon)
     
     # Clip extreme values to reasonable range [0.1, 10.0]
-    activation_ratios = np.clip(activation_ratios, 0.1, 10.0)
+    activation_ratios = np.clip(raw_activation_ratios, 0.1, 10.0)
     # print(f'{activation_ratios=}')
+    if return_raw:
+        return activation_ratios, raw_activation_ratios
     return activation_ratios
 
 
@@ -255,13 +260,16 @@ def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
     trajectory, x_final = simulate_eeg_dynamics(A_norm, x0, xbar, B, U, dt, leak)
     
     # Compute activation changes
-    activation_ratios = compute_activation_changes(baseline_activation, x_final)
+    activation_ratios, raw_activation_ratios = compute_activation_changes(
+        baseline_activation, x_final, return_raw=True
+    )
     
     # Package results
     results = {
         'trajectory': trajectory,
         'final_state': x_final,
         'activation_ratios': activation_ratios,
+        'raw_activation_ratios': raw_activation_ratios,
         'normalized_matrix': A_norm,
         'baseline': baseline_activation
     }
