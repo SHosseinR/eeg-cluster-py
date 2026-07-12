@@ -32,9 +32,19 @@ OPTIMIZATION_PER_BAND = True
 # Optional per-band measure lists. If a band is missing, OPTIMIZATION_MEASURES is used.
 # Example:
 OPTIMIZATION_MEASURES_BY_BAND = {
-    'delta': ['cv_weight', 'diameter', 'mean_weight'],
-    'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
+    #results-MDD-5
+    'delta': ['cv_weight', 'min_weight', 'diameter'],
+    'alpha': ['min_weight', 'small_worldness', 'betweenness_centrality'],
     'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+    # don't know wth is this!
+    # 'delta': ['cv_weight', 'diameter', 'mean_weight'],
+    # 'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
+    # 'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+    #tdbrainset
+    # 'delta': ['char_path_length', 'diameter', 'transitivity'],
+    # 'alpha': ['local_efficiency', 'global_efficiency', 'char_path_length'],
+    # 'beta': ['median_weight', 'std_weight', 'diameter'],
+    #small set
     # 'delta': ['std_weight', 'median_weight', 'betweenness_centrality'],
     # 'alpha': ['small_worldness', 'spectral_radius', 'std_weight'],
     # 'beta': ['betweenness_centrality', 'diameter', 'cv_weight'],
@@ -58,11 +68,11 @@ OPTIMIZATION_TOP_K = 5
 
 # Optional patient filtering before optimization.
 # Generate this ranking with plot_svm_margin_rejection_3d.py.
-PATIENT_REJECTION_PERCENT = 0
+PATIENT_REJECTION_PERCENT = 50
 PATIENT_REJECTION_PERCENT_BY_BAND = {
-    'delta': 0,
-    'alpha': 0,
-    'beta': 0,
+    'delta': 50,
+    'alpha': 50,
+    'beta': 50,
 }
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
     OUTPUT_DIR,
@@ -121,9 +131,9 @@ PLASTICITY_CONFIG = {
 }
 
 # Debug/plotting defaults
-OPTIMIZATION_DEBUG_SUBJECT = 'sub-001'
+OPTIMIZATION_DEBUG_SUBJECT = 'sub-88064657'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt')
+OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt-measure_same_as_results_MDD_5')
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
 OPTIMIZATION_FIGURES_DIR = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization', 'figures')
