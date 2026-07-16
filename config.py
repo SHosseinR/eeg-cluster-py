@@ -31,6 +31,7 @@ _REQUIRED_DATASET_KEYS = {
     "patient_subdirectory",
     "output_directory",
     "optimization_output_subdirectory",
+    "optimization_debug_subject",
     "optimization_measures_by_band",
 }
 _missing_dataset_keys = _REQUIRED_DATASET_KEYS - DATASET_CONFIG.keys()

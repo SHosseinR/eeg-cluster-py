@@ -4,6 +4,7 @@ healthy_subdirectory = "Healthy"
 patient_subdirectory = "MDD"
 output_directory = "./results-TDBRAIN-restEC"
 optimization_output_subdirectory = "optimization-nsga-distance_to_gt"
+optimization_debug_subject = "sub-88064657"
 
 [optimization_measures_by_band]
 delta = ["char_path_length", "diameter", "transitivity"]

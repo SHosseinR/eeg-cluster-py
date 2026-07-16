@@ -141,8 +141,7 @@ PLASTICITY_CONFIG = {
 }
 
 # Debug/plotting defaults
-# OPTIMIZATION_DEBUG_SUBJECT = 'sub-88064657'
-OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
+OPTIMIZATION_DEBUG_SUBJECT = DATASET_CONFIG["optimization_debug_subject"]
 
 # Output paths for optimization
 OPTIMIZATION_OUTPUT_DIR = os.path.join(

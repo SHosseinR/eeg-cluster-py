@@ -4,6 +4,7 @@ healthy_subdirectory = "HC"
 patient_subdirectory = "MDD"
 output_directory = "./results-first-paper-dataset"
 optimization_output_subdirectory = "optimization-nsga-distance_to_gt-enhancement_only"
+optimization_debug_subject = "MDD S2  EC"
 
 [optimization_measures_by_band]
 delta = ["cv_weight", "min_weight", "small_worldness"]
