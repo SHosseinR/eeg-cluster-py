@@ -33,17 +33,17 @@ OPTIMIZATION_PER_BAND = True
 # Example:
 OPTIMIZATION_MEASURES_BY_BAND = {
     #results-MDD-5
-    'delta': ['cv_weight', 'min_weight', 'small_worldness'],
-    'alpha': ['min_weight', 'transitivity', 'clustering_coefficient'],
-    'beta': ['cv_weight', 'diameter', 'modularity'],
+    # 'delta': ['cv_weight', 'min_weight', 'small_worldness'],
+    # 'alpha': ['min_weight', 'transitivity', 'clustering_coefficient'],
+    # 'beta': ['cv_weight', 'diameter', 'modularity'],
     # don't know wth is this!
     # 'delta': ['cv_weight', 'diameter', 'mean_weight'],
     # 'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
     # 'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
     #tdbrainset
-    # 'delta': ['char_path_length', 'diameter', 'transitivity'],
-    # 'alpha': ['local_efficiency', 'global_efficiency', 'char_path_length'],
-    # 'beta': ['median_weight', 'std_weight', 'diameter'],
+    'delta': ['char_path_length', 'diameter', 'transitivity'],
+    'alpha': ['local_efficiency', 'global_efficiency', 'char_path_length'],
+    'beta': ['median_weight', 'std_weight', 'diameter'],
     #small set
     # 'delta': ['std_weight', 'median_weight', 'betweenness_centrality'],
     # 'alpha': ['small_worldness', 'spectral_radius', 'std_weight'],
@@ -125,7 +125,7 @@ STIMULATION_DURATION_BOUNDS = (1, 30)
 #   (0.1, 3.0)   enhancement only
 #   (-3.0, -0.1) suppression only
 #   (-3.0, 3.0)  let the optimizer choose polarity (current default)
-STIMULATION_AMPLITUDE_BOUNDS = (-3.0, 3.0)
+STIMULATION_AMPLITUDE_BOUNDS = (0.1, 3.0)
 STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
 
 # Hard feasibility bounds on raw final/baseline activation ratios. Candidates

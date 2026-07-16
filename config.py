@@ -16,6 +16,13 @@ DATASET_ROOT = r"D:\university\projects\graph-opt\paper-data\EC\set2"
 HC_DATA_PATH = os.path.join(DATASET_ROOT, "HC")
 PATIENT_DATA_PATH = os.path.join(DATASET_ROOT, "MDD")
 OUTPUT_DIR = "./results-first-paper-dataset"
+TDBRAIN_PREPROCESSED_ROOT = (
+    "D:\\university\\projects\\graph-opt\\tbdbrain\\TDBRAIN_Dataset_V3_1\\"
+    "output\\preprocessed_tdbrain_restEC_set2"
+)
+HC_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "Healthy")
+PATIENT_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "MDD")
+OUTPUT_DIR = "./results-TDBRAIN-restEC"
 STEP_TO_START = 1
 
 # Channel display metadata. Exact labels remain authoritative for indexing.
