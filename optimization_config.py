@@ -145,6 +145,9 @@ PLASTICITY_CONFIG = {
 OPTIMIZATION_DEBUG_SUBJECT = 'MDD S2  EC'
 
 # Output paths for optimization
-OPTIMIZATION_OUTPUT_DIR = os.path.join(OUTPUT_DIR, 'optimization-nsga-distance_to_gt')
+OPTIMIZATION_OUTPUT_DIR = os.path.join(
+    OUTPUT_DIR,
+    DATASET_CONFIG["optimization_output_subdirectory"],
+)
 OPTIMIZATION_RESULTS_FILE = 'optimization_results.npy'
 OPTIMIZATION_FIGURES_DIR = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization', 'figures')

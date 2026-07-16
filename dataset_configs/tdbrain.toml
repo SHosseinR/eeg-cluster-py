@@ -3,6 +3,7 @@ dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/o
 healthy_subdirectory = "Healthy"
 patient_subdirectory = "MDD"
 output_directory = "./results-TDBRAIN-restEC"
+optimization_output_subdirectory = "optimization-nsga-distance_to_gt"
 
 [optimization_measures_by_band]
 delta = ["char_path_length", "diameter", "transitivity"]
