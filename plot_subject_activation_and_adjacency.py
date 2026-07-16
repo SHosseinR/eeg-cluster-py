@@ -125,7 +125,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-dir",
-        default=OPTIMIZATION_FIGURES_DIR,
+        default=None,
         help="Optional output directory for figures.",
     )
     parser.add_argument(
@@ -216,7 +216,13 @@ def main() -> None:
     else:
         updated_matrix = original_matrix
 
-    output_dir = args.output_dir
+    safe_subject = "".join(
+        character if character.isalnum() or character in ".-_" else "_"
+        for character in str(subject_id)
+    ).strip("_") or "unknown-subject"
+    output_dir = args.output_dir or os.path.join(
+        OPTIMIZATION_FIGURES_DIR, "subjects", safe_subject, str(band_name)
+    )
     os.makedirs(output_dir, exist_ok=True)
 
     # Activation change plot (time series)

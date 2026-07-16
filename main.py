@@ -100,6 +100,10 @@ def create_output_directories():
     dirs = [
         OUTPUT_DIR,
         os.path.join(OUTPUT_DIR, 'figures'),
+        os.path.join(OUTPUT_DIR, 'figures', 'connectivity'),
+        os.path.join(OUTPUT_DIR, 'figures', 'network_statistics'),
+        os.path.join(OUTPUT_DIR, 'figures', 'classification'),
+        os.path.join(OUTPUT_DIR, 'figures', 'misc'),
         os.path.join(OUTPUT_DIR, 'data'),
         os.path.join(OUTPUT_DIR, 'reports')
     ]
@@ -280,7 +284,7 @@ def main():
         plot_connectivity_matrices(
             connectivity_matrices,
             CONNECTIVITY_METHODS,
-            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz1_connectivity_matrices.png')
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'connectivity', 'viz1_connectivity_matrices.png')
         )
         
         # Visualization 2: P-value matrices per method
@@ -288,7 +292,7 @@ def main():
         plot_pvalue_matrices(
             connectivity_matrices,
             CONNECTIVITY_METHODS,
-            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz2_pvalue_matrices.png')
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'connectivity', 'viz2_pvalue_matrices.png')
         )
         
         # Visualization 3: P-value matrices per band
@@ -296,7 +300,7 @@ def main():
         plot_pvalue_matrices_per_band(
             connectivity_matrices,
             list(FREQUENCY_BANDS.keys()),
-            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz3_pvalue_per_band.png')
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'connectivity', 'viz3_pvalue_per_band.png')
         )
 
         stability_summary_df = summarize_connectivity_stability(
@@ -372,7 +376,7 @@ def main():
         print("\nCreating Visualization 4: Network measures p-values...")
         plot_network_measures_pvalues(
             pvalue_df,
-            output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz4_network_pvalues.png')
+            output_path=os.path.join(OUTPUT_DIR, 'figures', 'network_statistics', 'viz4_network_pvalues.png')
         )
         
     # ========================================================================
@@ -457,13 +461,13 @@ def main():
             print("\nCreating Visualization 5: Top feature triplets per band (4 panels per figure)...")
             plot_top_feature_sets_per_band(
                 top_triplets_by_band,
-                output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz5_top_triplets_per_band.png')
+                output_path=os.path.join(OUTPUT_DIR, 'figures', 'classification', 'viz5_top_triplets_per_band.png')
             )
 
             print("\nCreating Visualization 6: Feature importance per band (4 panels per figure)...")
             plot_feature_importance_per_band(
                 best_triplets_by_band,
-                output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz6_feature_importance_per_band.png'),
+                output_path=os.path.join(OUTPUT_DIR, 'figures', 'classification', 'viz6_feature_importance_per_band.png'),
                 top_n=CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
             )
 
@@ -546,7 +550,7 @@ def main():
             print("\nCreating Visualization 6: Feature importance per band (4 panels per figure)...")
             plot_feature_importance_per_band(
                 best_models_by_band,
-                output_path=os.path.join(OUTPUT_DIR, 'figures', 'viz6_feature_importance_per_band.png'),
+                output_path=os.path.join(OUTPUT_DIR, 'figures', 'classification', 'viz6_feature_importance_per_band.png'),
                 top_n=CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
             )
         else:

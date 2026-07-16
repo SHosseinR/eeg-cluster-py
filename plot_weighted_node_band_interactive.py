@@ -491,7 +491,7 @@ def main() -> None:
     html_output = (
         args.html_output
         if args.html_output is not None
-        else os.path.join(OPTIMIZATION_FIGURES_DIR, "weighted_node_band_interactive.html")
+        else os.path.join(OPTIMIZATION_FIGURES_DIR, "targets", "weighted_node_band_interactive.html")
     )
     os.makedirs(os.path.dirname(html_output), exist_ok=True)
 

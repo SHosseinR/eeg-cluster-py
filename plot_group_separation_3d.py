@@ -145,7 +145,7 @@ def main():
     )
     parser.add_argument(
         '--output',
-        default=os.path.join(OUTPUT_DIR, 'figures', 'group_separation_3d.png'),
+        default=os.path.join(OUTPUT_DIR, 'figures', 'network_statistics', 'group_separation_3d.png'),
         help='Output PNG path'
     )
     args = parser.parse_args()

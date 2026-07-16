@@ -101,16 +101,18 @@ def _save_candidate_region_stats(
     weighted_stats_df.to_csv(weighted_stats_path, index=False)
     print(f"Saved rank-weighted candidate-region statistics{output_label}: {weighted_stats_path}")
 
+    statistics_scope = prefix if prefix else "overall"
+    statistics_dir = os.path.join(figures_dir, "target_statistics", statistics_scope)
     figure_paths = plot_candidate_region_statistics(
         stats_df,
         channel_names,
-        figures_dir,
+        statistics_dir,
         prefix=hard_figure_prefix
     )
     figure_paths.extend(plot_weighted_rank_region_statistics(
         weighted_stats_df,
         channel_names,
-        figures_dir,
+        statistics_dir,
         prefix=weighted_figure_prefix
     ))
     for figure_path in figure_paths:

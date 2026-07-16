@@ -1300,7 +1300,8 @@ def plot_optimization_summary(optimization_results: Dict,
     output_dir : str
         Directory to save figures
     """
-    os.makedirs(output_dir, exist_ok=True)
+    overview_dir = os.path.join(output_dir, 'overview')
+    os.makedirs(overview_dir, exist_ok=True)
     channel_names = _resolve_channel_labels(optimization_results, channel_names)
     
     print("\nGenerating optimization visualization plots...")
@@ -1310,7 +1311,7 @@ def plot_optimization_summary(optimization_results: Dict,
     plot_node_histogram(
         optimization_results, 
         channel_names,
-        save_path=os.path.join(output_dir, 'optimal_nodes_histogram.png')
+        save_path=os.path.join(overview_dir, 'optimal_nodes_histogram.png')
     )
 
     # 1b. Weighted node histogram
@@ -1319,7 +1320,7 @@ def plot_optimization_summary(optimization_results: Dict,
         optimization_results,
         channel_names,
         top_k=top_k,
-        save_path=os.path.join(output_dir, 'weighted_nodes_histogram.png')
+        save_path=os.path.join(overview_dir, 'weighted_nodes_histogram.png')
     )
     
     # 2. Band histogram
@@ -1327,7 +1328,7 @@ def plot_optimization_summary(optimization_results: Dict,
     plot_band_histogram(
         optimization_results,
         band_names,
-        save_path=os.path.join(output_dir, 'optimal_bands_histogram.png')
+        save_path=os.path.join(overview_dir, 'optimal_bands_histogram.png')
     )
 
     # 2b. Weighted band histogram
@@ -1336,7 +1337,7 @@ def plot_optimization_summary(optimization_results: Dict,
         optimization_results,
         band_names,
         top_k=top_k,
-        save_path=os.path.join(output_dir, 'weighted_bands_histogram.png')
+        save_path=os.path.join(overview_dir, 'weighted_bands_histogram.png')
     )
     
     # 3. Node-Band heatmap
@@ -1345,7 +1346,7 @@ def plot_optimization_summary(optimization_results: Dict,
         optimization_results,
         channel_names,
         band_names,
-        save_path=os.path.join(output_dir, 'node_band_heatmap.png')
+        save_path=os.path.join(overview_dir, 'node_band_heatmap.png')
     )
 
     # 3b. Weighted node-band heatmap
@@ -1355,7 +1356,7 @@ def plot_optimization_summary(optimization_results: Dict,
         channel_names,
         band_names,
         top_k=top_k,
-        save_path=os.path.join(output_dir, 'weighted_node_band_heatmap.png')
+        save_path=os.path.join(overview_dir, 'weighted_node_band_heatmap.png')
     )
     
     # 4. Pareto fronts
@@ -1363,10 +1364,10 @@ def plot_optimization_summary(optimization_results: Dict,
     plot_pareto_fronts(
         optimization_results,
         optimization_measures,
-        save_path=os.path.join(output_dir, 'pareto_fronts_sample.png')
+        save_path=os.path.join(overview_dir, 'pareto_fronts_sample.png')
     )
     
-    print(f"\nAll plots saved to: {output_dir}")
+    print(f"\nAll plots saved to: {overview_dir}")
 
 
 def create_optimization_report(optimization_results: Dict,

@@ -169,7 +169,7 @@ def main() -> None:
 
     fig.tight_layout()
 
-    figures_dir = os.path.join(output_dir, "optimization", "figures")
+    figures_dir = os.path.join(output_dir, "optimization", "figures", "overview")
     output_path = args.output if args.output is not None else os.path.join(
         figures_dir, "best_closeness_per_subject.png"
     )

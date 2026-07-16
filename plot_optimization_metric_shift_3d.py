@@ -179,10 +179,11 @@ def _plot_band(
     ]
     title = f"{band_name.capitalize()} metric shift: initial -> final vs healthy mean"
     stem = f"metric_shift_3d_{band_name}"
-    png_path = _output_path(output, OPTIMIZATION_FIGURES_DIR, stem, "png").replace(
+    structured_dir = os.path.join(OPTIMIZATION_FIGURES_DIR, "metric_space", "shifts")
+    png_path = _output_path(output, structured_dir, stem, "png").replace(
         "{band}", band_name
     )
-    html_path = _output_path(html_output, OPTIMIZATION_FIGURES_DIR, stem, "html").replace(
+    html_path = _output_path(html_output, structured_dir, stem, "html").replace(
         "{band}", band_name
     )
 

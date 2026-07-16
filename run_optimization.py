@@ -357,16 +357,20 @@ def save_candidate_region_selection_stats(
 
     figure_paths = []
     if figures_dir is not None:
+        statistics_scope = figure_prefix if figure_prefix else "overall"
+        statistics_dir = os.path.join(
+            figures_dir, "target_statistics", statistics_scope
+        )
         figure_paths = plot_candidate_region_statistics(
             stats_df,
             channel_names,
-            figures_dir,
+            statistics_dir,
             prefix=hard_figure_prefix
         )
         figure_paths.extend(plot_weighted_rank_region_statistics(
             weighted_stats_df,
             channel_names,
-            figures_dir,
+            statistics_dir,
             prefix=weighted_figure_prefix
         ))
 
