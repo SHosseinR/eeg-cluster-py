@@ -1,0 +1,20 @@
+# First-paper connectivity-v2 experiment. Uses a distinct output tree.
+dataset_root = "D:/university/projects/graph-opt/paper-data/EC/set2"
+healthy_subdirectory = "HC"
+patient_subdirectory = "MDD"
+output_directory = "./results-first-paper-connectivity-v2"
+optimization_output_subdirectory = "optimization-nsga-distance_to_gt"
+optimization_debug_subject = "MDD S2  EC"
+
+[connectivity]
+methods = ["gc", "gc_tr", "coh", "plv", "imcoh", "aec"]
+selected_method = "gc"
+gc_n_lags = 26 # approximately 100 ms at 256 Hz
+normalization = "none"
+error_policy = "raise"
+spectral_input = "broadband"
+
+[optimization_measures_by_band]
+delta = ["cv_weight", "min_weight", "small_worldness"]
+alpha = ["min_weight", "transitivity", "clustering_coefficient"]
+beta = ["cv_weight", "diameter", "modularity"]

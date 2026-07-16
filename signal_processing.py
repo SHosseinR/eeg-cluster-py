@@ -121,7 +121,7 @@ def filter_epochs_by_bands(epochs, fs, frequency_bands=FREQUENCY_BANDS):
     return filtered_epochs
 
 
-def process_subject_epochs(data, fs):
+def process_subject_epochs(data, fs, *, return_broadband=False):
     """
     Complete epoch processing pipeline for a single subject.
     
@@ -137,6 +137,10 @@ def process_subject_epochs(data, fs):
     filtered_epochs : dict
         Dictionary mapping band names to filtered epochs
         Each value has shape (n_epochs, n_channels, n_samples)
+    broadband_epochs : ndarray, optional
+        Returned with ``filtered_epochs`` only when ``return_broadband=True``.
+        These unfiltered epochs support spectral estimation without a second
+        band-pass restriction.
     """
     # Create epochs
     epochs = create_epochs(data, fs)
@@ -144,6 +148,8 @@ def process_subject_epochs(data, fs):
     # Filter into frequency bands
     filtered_epochs = filter_epochs_by_bands(epochs, fs)
     
+    if return_broadband:
+        return filtered_epochs, epochs
     return filtered_epochs
 
 

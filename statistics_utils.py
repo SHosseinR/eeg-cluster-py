@@ -105,12 +105,15 @@ def compute_pvalue_matrix(
     return pvalue_matrix, mean_matrix
 
 
-def summarize_connectivity_stability(connectivity_dict, methods, band_names, thresholds=(0.001, 0.01, 0.05)):
+def summarize_connectivity_edge_prevalence(
+    connectivity_dict, methods, band_names, thresholds=(0.001, 0.01, 0.05)
+):
     """
-    Summarize edge-wise functional-connectivity stability p-values.
+    Summarize edge-wise positive-connectivity prevalence p-values.
 
-    Stability is estimated as a one-sample test for each edge across subjects
-    against zero connectivity, using the one-sided alternative mean > 0.
+    This is a one-sample edge test against zero, not a test-retest or split-half
+    reliability statistic. Use ``classification_score/connectivity_benchmark.py``
+    for genuine within-subject split-half reliability.
     """
     rows = []
 
@@ -153,6 +156,16 @@ def summarize_connectivity_stability(connectivity_dict, methods, band_names, thr
         add_summary('band_all_methods', band, matrices)
 
     return pd.DataFrame(rows)
+
+
+def summarize_connectivity_stability(
+    connectivity_dict, methods, band_names, thresholds=(0.001, 0.01, 0.05)
+):
+    """Backward-compatible alias for the formerly misnamed prevalence report."""
+
+    return summarize_connectivity_edge_prevalence(
+        connectivity_dict, methods, band_names, thresholds=thresholds
+    )
 
 
 def compute_group_comparison_pvalues(group1_measures, group2_measures, measure_names, band_names):

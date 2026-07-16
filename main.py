@@ -13,6 +13,7 @@ from config import (
     HC_DATA_PATH, PATIENT_DATA_PATH, OUTPUT_DIR,
     FREQUENCY_BANDS, CONNECTIVITY_METHODS, SELECTED_METHOD,
     NETWORK_MEASURES, STEP_TO_START, CONNECTIVITY_N_JOBS,
+    SPECTRAL_CONNECTIVITY_INPUT,
     CLASSIFICATION_MODE, CLASSIFICATION_MODEL, CLASSIFICATION_C,
     CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
 )
@@ -23,7 +24,7 @@ from connectivity import compute_all_connectivity
 from network_measures import compute_network_measures_for_subjects, compute_all_network_measures
 from statistics_utils import (
     compute_pvalue_matrix, compute_group_comparison_pvalues,
-    extract_features_for_classification, summarize_connectivity_stability
+    extract_features_for_classification, summarize_connectivity_edge_prevalence
 )
 from visualization import (
     plot_connectivity_matrices, plot_pvalue_matrices,
@@ -52,7 +53,9 @@ def _filtered_epochs_path(group_name, subject_id):
     return os.path.join(_filtered_epochs_dir(), safe_group, f'{safe_subject}.npy')
 
 
-def _save_filtered_subject(group_name, subject_id, subject, filtered_epochs):
+def _save_filtered_subject(
+    group_name, subject_id, subject, filtered_epochs, broadband_epochs=None
+):
     """Persist one subject's filtered epochs and return lightweight metadata."""
     path = _filtered_epochs_path(group_name, subject_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -68,6 +71,8 @@ def _save_filtered_subject(group_name, subject_id, subject, filtered_epochs):
         'channel_display_names': subject.get('channel_display_names', subject['channels']),
         'channel_metadata': subject.get('channel_metadata')
     }
+    if broadband_epochs is not None:
+        payload['broadband_epochs'] = np.asarray(broadband_epochs, dtype=np.float32)
     np.save(path, payload, allow_pickle=True)
     return {
         'filtered_epochs_path': path,
@@ -90,7 +95,8 @@ def _compute_subject_connectivity_task(task):
     conn_results = compute_all_connectivity(
         payload['filtered_epochs'],
         fs,
-        methods=methods
+        methods=methods,
+        broadband_epochs=payload.get('broadband_epochs'),
     )
     return group_name, subject_id, conn_results
 
@@ -165,14 +171,24 @@ def main():
                 subject_id = subject['subject_id']
                 print(f"\nProcessing {subject_id} ({group_name})...")
                 
-                filtered_epochs = process_subject_epochs(subject['data'], subject['fs'])
+                use_broadband = SPECTRAL_CONNECTIVITY_INPUT == 'broadband'
+                processed = process_subject_epochs(
+                    subject['data'], subject['fs'], return_broadband=use_broadband
+                )
+                if use_broadband:
+                    filtered_epochs, broadband_epochs = processed
+                else:
+                    filtered_epochs, broadband_epochs = processed, None
                 all_subjects_filtered[group_name][subject_id] = _save_filtered_subject(
                     group_name,
                     subject_id,
                     subject,
-                    filtered_epochs
+                    filtered_epochs,
+                    broadband_epochs=broadband_epochs,
                 )
                 del filtered_epochs
+                if broadband_epochs is not None:
+                    del broadband_epochs
 
         np.save(_filtered_epochs_index_path(), all_subjects_filtered, allow_pickle=True)
         print(f"\nSaved filtered-epoch index: {_filtered_epochs_index_path()}")
@@ -303,16 +319,16 @@ def main():
             output_path=os.path.join(OUTPUT_DIR, 'figures', 'connectivity', 'viz3_pvalue_per_band.png')
         )
 
-        stability_summary_df = summarize_connectivity_stability(
+        prevalence_summary_df = summarize_connectivity_edge_prevalence(
             connectivity_matrices,
             CONNECTIVITY_METHODS,
             list(FREQUENCY_BANDS.keys())
         )
-        stability_summary_df.to_csv(
-            os.path.join(OUTPUT_DIR, 'data', 'connectivity_stability_summary.csv'),
+        prevalence_summary_df.to_csv(
+            os.path.join(OUTPUT_DIR, 'data', 'connectivity_edge_prevalence_summary.csv'),
             index=False
         )
-        print("\nSaved connectivity stability summary to CSV")
+        print("\nSaved connectivity edge-prevalence summary to CSV")
         
     # ========================================================================
     # STEP 5: NETWORK MEASURES

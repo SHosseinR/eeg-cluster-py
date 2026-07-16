@@ -1,6 +1,6 @@
 __pycache__/
 node_modules/
 cache/*.npz
+cache/**/*.npz
 data/*.csv
 models/*.joblib
-

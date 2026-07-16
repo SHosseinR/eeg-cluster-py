@@ -57,4 +57,52 @@ The winning TD-BRAIN score uses covariance of real band-limited EEG. The current
 4. score changes are shown not to exploit out-of-distribution directions;
 5. intervention-related score movement is associated with an independently meaningful outcome.
 
+## Connectivity-focused follow-up
+
+All values use subject-level nested CV. Estimators stay on their natural
+scales; scaling and edge selection occur only inside training folds.
+Split-half rho is the odd/even epoch edge-pattern Spearman correlation averaged
+over the three band summaries.
+
+| Dataset | Representation | AUC | Balanced accuracy | Brier | Split-half rho |
+|---|---|---:|---:|---:|---:|
+| TD-BRAIN | Coherence | **0.864** | **0.794** | **0.156** | **0.898** |
+| TD-BRAIN | PLV | 0.860 | 0.784 | 0.155 | 0.864 |
+| TD-BRAIN | AEC | 0.826 | 0.771 | 0.170 | 0.838 |
+| TD-BRAIN | Imaginary coherence | 0.712 | 0.658 | 0.247 | 0.535 |
+| TD-BRAIN | Saved normalized pairwise GC | 0.642 | 0.598 | 0.308 | unavailable |
+| First-paper | PLI | 0.827 | 0.708 | 0.176 | 0.238 |
+| First-paper | AEC | 0.790 | 0.758 | 0.194 | 0.889 |
+| First-paper | Imaginary coherence | 0.783 | 0.793 | 0.196 | 0.510 |
+| First-paper | Saved normalized pairwise GC | 0.732 | 0.667 | 0.218 | unavailable |
+
+First-paper PLI/ciPLV was not selected because its edge topology was unreliable
+and it did not replicate on TD-BRAIN. The larger TD-BRAIN dataset drives the
+selected connectivity model: natural-scale coherence edges with logistic
+regression.
+
+TD coherence is not just one global coupling value. Band means alone were
+chance (AUC 0.502); within-subject centered edges retained AUC 0.854 and edge
+ranks retained 0.851. Age/sex matching retained 151 MDD-control pairs. Across
+three repeated nested runs, natural coherence averaged AUC 0.810 +/- 0.015 and
+centered coherence averaged 0.817 +/- 0.018.
+
+Saved GC has training capacity but poor generalization. Logistic and RBF both
+reached training AUC and balanced accuracy 1.000 on both datasets. Their CV
+AUCs were only 0.642/0.610 on TD-BRAIN and 0.732/0.738 on first-paper; Extra
+Trees GC reached 0.534 on TD-BRAIN. Other model families do not rescue the
+saved GC representation.
+
+The GC audit found two all-zero TD subject-band matrices. Its implicit 40-lag
+model represented 80 ms at 500 Hz but 156.25 ms at 256 Hz. Per-subject min-max
+normalization removes absolute strength and forces every nonconstant matrix to
+contain an edge equal to one. The opt-in `*_connectivity_v2.toml` profiles use
+broadband input, approximately 100 ms dataset-specific orders, natural scales,
+explicit failure propagation, and separate output trees.
+
+First-paper DTF reached AUC 0.918, but its narrow-band VAR residual lag-1
+correlation averaged 0.628. This fails the innovation diagnostic, so DTF is
+provisional/invalid and is not selected. The full TD VAR run was stopped after
+a checkpointed subset pending broadband/order correction.
+
 Until those checks pass, the classifier is a stronger separation experiment—not a validated stimulation target or treatment recommendation.

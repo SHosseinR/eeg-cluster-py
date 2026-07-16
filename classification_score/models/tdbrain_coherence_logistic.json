@@ -1,0 +1,59 @@
+{
+  "profile": "tdbrain",
+  "method": "coherence",
+  "transformation": "natural_edges",
+  "model_name": "logistic_l2",
+  "bands": {
+    "delta": [
+      1.0,
+      4.0
+    ],
+    "alpha": [
+      8.0,
+      13.0
+    ],
+    "beta": [
+      13.0,
+      30.0
+    ]
+  },
+  "channel_names": [
+    "Fp1",
+    "Fp2",
+    "F7",
+    "F3",
+    "Fz",
+    "F4",
+    "F8",
+    "FC3",
+    "FCz",
+    "FC4",
+    "T7",
+    "C3",
+    "Cz",
+    "C4",
+    "T8",
+    "CP3",
+    "CPz",
+    "CP4",
+    "P7",
+    "P3",
+    "Pz",
+    "P4",
+    "P8",
+    "O1",
+    "Oz",
+    "O2"
+  ],
+  "directed": false,
+  "n_features": 975,
+  "best_params": {
+    "clf__C": 0.1,
+    "select__k": "all"
+  },
+  "evidence": {
+    "classification_screen": "classification_score\\results\\connectivity_benchmark\\tdbrain\\full_screen\\classification_summary.csv",
+    "topology_sensitivity": "classification_score\\results\\connectivity_benchmark\\tdbrain\\coherence_topology\\summary.csv",
+    "age_sex_sensitivity": "classification_score\\results\\connectivity_benchmark\\tdbrain\\age_sex_matched\\summary.csv"
+  }
+}

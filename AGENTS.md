@@ -50,6 +50,14 @@ These are a snapshot of the live configuration, not timeless design requirements
 - Dataset-specific optimization measures come from each TOML profile.
 - `CONNECTIVITY_N_JOBS` and `OPTIMIZATION_N_JOBS` default to automatic multiprocessing, capped at the number of tasks and normally using `os.cpu_count() - 1` workers.
 
+The opt-in `tdbrain_connectivity_v2.toml` and
+`first_paper_connectivity_v2.toml` profiles are distinct experiments with
+separate output trees. They cache broadband epochs for spectral estimation,
+use approximately 100 ms dataset-specific GC orders, retain natural estimator
+scales, and raise on connectivity failure. The historical profiles retain
+band-filtered input, 40 lags, min-max normalization, and zero placeholders for
+saved-result compatibility.
+
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 
 ## Architecture map
@@ -65,12 +73,13 @@ Never silently change these values to make a test or figure look better. Configu
 
 ### Analysis
 
-- `connectivity.py`: PLV, PSI, GC, time-reversed GC, normalization, and method/band dispatch. PDC is intentionally unimplemented and raises `NotImplementedError`.
+- `connectivity.py`: coherence-family estimators, PLV, AEC, PSI, GC, time-reversed GC, explicit normalization/error policies, and method/band dispatch. PDC is intentionally unimplemented in production and raises `NotImplementedError`.
 - `network_measures.py`: weighted/directed graph metrics and their matrix preparation.
 - `statistics_utils.py`: connectivity and cohort tests, feature extraction, multiple-comparison correction, and target-selection statistics.
 - `classification.py`: leakage-safe cross-validation, linear SVM/logistic models, feature importance, and reports.
 - `visualization.py`: main-pipeline figures.
 - `main.py`: eight-stage orchestration and persisted intermediate artifacts.
+- `classification_score/connectivity_*.py`: standalone natural-scale connectivity benchmarking, synthetic audit, split-half reliability, confound/topology sensitivity, conditional VAR diagnostics, and probability scoring.
 
 ### Optimization
 

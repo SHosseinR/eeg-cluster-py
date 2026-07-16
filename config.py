@@ -86,14 +86,28 @@ FREQUENCY_BANDS = {
 # ============================================================================
 # CONNECTIVITY PARAMETERS
 # ============================================================================
-# Connectivity methods to compute
-# CONNECTIVITY_METHODS = ['pdc', 'gc', 'psi', 'plv']
-# CONNECTIVITY_METHODS = ['gc_tr', 'gc', 'psi', 'plv']
-CONNECTIVITY_METHODS = ['gc']
+# Dataset profiles may opt into a scientifically distinct connectivity run.
+# Existing profiles retain their historical settings; the *_connectivity_v2
+# profiles use broadband spectral input, natural estimator scales, and explicit
+# failure handling without overwriting legacy result trees.
+CONNECTIVITY_SETTINGS = DATASET_CONFIG.get("connectivity", {})
+CONNECTIVITY_METHODS = list(CONNECTIVITY_SETTINGS.get("methods", ["gc"]))
 CONNECTIVITY_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
 
 # Selected method for network analysis (change after visualization 2)
-SELECTED_METHOD = 'gc'  # Change this based on visualization results
+SELECTED_METHOD = CONNECTIVITY_SETTINGS.get("selected_method", "gc")
+GC_N_LAGS = int(CONNECTIVITY_SETTINGS.get("gc_n_lags", 40))
+CONNECTIVITY_NORMALIZATION = CONNECTIVITY_SETTINGS.get("normalization", "minmax")
+CONNECTIVITY_ERROR_POLICY = CONNECTIVITY_SETTINGS.get("error_policy", "zeros")
+SPECTRAL_CONNECTIVITY_INPUT = CONNECTIVITY_SETTINGS.get(
+    "spectral_input", "band_filtered"
+)
+if CONNECTIVITY_NORMALIZATION not in {"none", "minmax", "maxabs"}:
+    raise ValueError(f"Unknown connectivity normalization: {CONNECTIVITY_NORMALIZATION}")
+if CONNECTIVITY_ERROR_POLICY not in {"raise", "zeros"}:
+    raise ValueError(f"Unknown connectivity error policy: {CONNECTIVITY_ERROR_POLICY}")
+if SPECTRAL_CONNECTIVITY_INPUT not in {"broadband", "band_filtered"}:
+    raise ValueError(f"Unknown spectral connectivity input: {SPECTRAL_CONNECTIVITY_INPUT}")
 
 # Frequency resolution for spectral connectivity
 FMIN = 1.0

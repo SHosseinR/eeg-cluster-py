@@ -9,8 +9,12 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
-from data_features import build_feature_dataset
-from modeling import nested_oof_evaluate
+try:
+    from .data_features import build_feature_dataset
+    from .modeling import nested_oof_evaluate
+except ImportError:
+    from data_features import build_feature_dataset
+    from modeling import nested_oof_evaluate
 
 
 def _aligned_metadata(dataset, csv_path: Path) -> pd.DataFrame:

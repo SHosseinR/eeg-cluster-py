@@ -4,6 +4,13 @@ This directory is isolated from the analysis and optimization pipelines. It read
 
 The main finding is that the configured graph-measure space is the wrong representation for classification in these data. Spatial covariance geometry from band-filtered EEG is much more discriminative. See [RESULTS.md](RESULTS.md) for the measured results and limitations.
 
+The connectivity follow-up improved TD-BRAIN classification from saved GC AUC
+0.642 to natural-scale coherence AUC 0.864, with high split-half edge
+reliability. Coherence retained AUC 0.854 after removing every subject/band
+mean and mean AUC 0.817 in repeated age/sex-matched runs. It is the selected
+connectivity-only probability model; covariance remains the stronger
+unconstrained EEG classifier.
+
 ## What is compared
 
 Feature families:
@@ -64,6 +71,48 @@ D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/cross_da
 
 `audit_participant_workbook.mjs` is the read-only, artifact-tool-based utility used to extract the local TD-BRAIN age/sex audit table. It is optional for the classification screen.
 
+## Connectivity benchmark
+
+Run the fast-method comparison and real split-half reliability analysis:
+
+```powershell
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_benchmark.py `
+  --profiles first_paper tdbrain `
+  --families legacy fourier envelope `
+  --models logistic_l2 --n-jobs 4 --resume --run-name full_screen
+```
+
+Conditional VAR/PDC/DTF are opt-in. Inspect `var_diagnostics.csv`; high
+classification accuracy does not validate a VAR with autocorrelated residuals.
+
+```powershell
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_benchmark.py `
+  --profiles first_paper tdbrain --families var `
+  --models logistic_l2 --n-jobs 4 --resume --run-name var_screen
+
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_sensitivity.py `
+  --profiles first_paper tdbrain --methods coherence
+
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_confound_checks.py `
+  --method coherence --repeats 3
+
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_audit.py
+```
+
+The production-safe experiment profiles do not overwrite historical results:
+
+```powershell
+$env:EEG_DATASET_CONFIG = "tdbrain_connectivity_v2.toml"
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe main.py
+
+$env:EEG_DATASET_CONFIG = "first_paper_connectivity_v2.toml"
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe main.py
+```
+
+These full runs compute GC and time-reversed GC in addition to faster methods
+and can take a long time. Before launching, review the profile output path,
+method list, lag count, broadband input, and worker count.
+
 ## Fit and use the selected models
 
 Train the two dataset-specific development models:
@@ -95,6 +144,17 @@ patient_probability = model.predict_band_epochs(filtered_epochs_by_band, channel
 
 The artifact enforces exact feature names and channel order. `Patient=1`; `predict_proba(...)[1]` is the reported Patient probability.
 
+Train and use the selected connectivity-only scorer:
+
+```powershell
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/selected_connectivity_model.py train `
+  --profile tdbrain --method coherence --transformation natural_edges `
+  --model logistic_l2 --mode full
+
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/selected_connectivity_model.py predict `
+  results-TDBRAIN-restEC/data/filtered_epochs/Patient/sub-88005805.npy
+```
+
 ## Files
 
 - `data_features.py`: artifact loading and all feature families;
@@ -103,6 +163,12 @@ The artifact enforces exact feature names and channel order. `Patient=1`; `predi
 - `confound_checks.py`: age/sex baseline and matched-cohort validation;
 - `cross_dataset_test.py`: strict train-one-dataset/test-the-other experiment;
 - `selected_model.py`: final fit/load/score API and CLI;
+- `connectivity_methods.py`: Fourier, envelope, conditional VAR, PDC, and DTF estimators;
+- `connectivity_benchmark.py`: resumable reliability and nested-CV comparison;
+- `connectivity_sensitivity.py`: global-strength versus topology controls;
+- `connectivity_confound_checks.py`: age/sex-matched connectivity validation;
+- `connectivity_audit.py`: synthetic GC and saved-artifact QC;
+- `selected_connectivity_model.py`: selected connectivity probability API and CLI;
 - `test_classification_score.py`: focused synthetic contract tests;
 - `results/`: CSV summaries and out-of-fold predictions;
 - `models/`: fitted joblib artifacts plus JSON provenance.
@@ -110,4 +176,3 @@ The artifact enforces exact feature names and channel order. `Patient=1`; `predi
 ## Scientific boundary
 
 These probabilities are research scores, not diagnoses. The cross-dataset transfer failure shows that acquisition/reference/site shift remains substantial. A covariance score can only become an optimization objective after simulated trajectories are demonstrated to reproduce the real-EEG covariance feature distribution and the intervention-induced score change is externally validated. Until then, minimizing Patient probability is not evidence of a therapeutic effect.
-
