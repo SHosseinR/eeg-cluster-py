@@ -4,7 +4,7 @@ Configuration for NSGA-II optimization of EEG connectivity
 
 import os
 
-from config import OUTPUT_DIR
+from config import DATASET_CONFIG, OUTPUT_DIR
 
 # ============================================================================
 # OPTIMIZATION PARAMETERS
@@ -29,26 +29,27 @@ OPTIMIZATION_MEASURES = [
 # Run a separate optimization per band (band is fixed, not a decision variable).
 OPTIMIZATION_PER_BAND = True
 
-# Optional per-band measure lists. If a band is missing, OPTIMIZATION_MEASURES is used.
-# Example:
-OPTIMIZATION_MEASURES_BY_BAND = {
-    #results-MDD-5
-    # 'delta': ['cv_weight', 'min_weight', 'small_worldness'],
-    # 'alpha': ['min_weight', 'transitivity', 'clustering_coefficient'],
-    # 'beta': ['cv_weight', 'diameter', 'modularity'],
-    # don't know wth is this!
-    # 'delta': ['cv_weight', 'diameter', 'mean_weight'],
-    # 'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
-    # 'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
-    #tdbrainset
-    'delta': ['char_path_length', 'diameter', 'transitivity'],
-    'alpha': ['local_efficiency', 'global_efficiency', 'char_path_length'],
-    'beta': ['median_weight', 'std_weight', 'diameter'],
-    #small set
-    # 'delta': ['std_weight', 'median_weight', 'betweenness_centrality'],
-    # 'alpha': ['small_worldness', 'spectral_radius', 'std_weight'],
-    # 'beta': ['betweenness_centrality', 'diameter', 'cv_weight'],
-}
+# Dataset-specific measure lists are loaded from the same profile as the data
+# paths. If a band is missing, OPTIMIZATION_MEASURES is used.
+OPTIMIZATION_MEASURES_BY_BAND = DATASET_CONFIG["optimization_measures_by_band"]
+# OPTIMIZATION_MEASURES_BY_BAND = {
+#     #results-MDD-5
+#     # 'delta': ['cv_weight', 'min_weight', 'small_worldness'],
+#     # 'alpha': ['min_weight', 'transitivity', 'clustering_coefficient'],
+#     # 'beta': ['cv_weight', 'diameter', 'modularity'],
+#     # don't know wth is this!
+#     # 'delta': ['cv_weight', 'diameter', 'mean_weight'],
+#     # 'alpha': ['mean_weight', 'small_worldness', 'betweenness_centrality'],
+#     # 'beta': ['cv_weight', 'betweenness_centrality', 'diameter'],
+#     #tdbrainset
+#     'delta': ['char_path_length', 'diameter', 'transitivity'],
+#     'alpha': ['local_efficiency', 'global_efficiency', 'char_path_length'],
+#     'beta': ['median_weight', 'std_weight', 'diameter'],
+#     #small set
+#     # 'delta': ['std_weight', 'median_weight', 'betweenness_centrality'],
+#     # 'alpha': ['small_worldness', 'spectral_radius', 'std_weight'],
+#     # 'beta': ['betweenness_centrality', 'diameter', 'cv_weight'],
+# }
 # OPTIMIZATION_MEASURES_BY_BAND = {}
 
 # NSGA-II Algorithm parameters (using pymoo)

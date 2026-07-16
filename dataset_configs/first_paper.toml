@@ -1,0 +1,10 @@
+# First paper EC dataset
+dataset_root = "D:/university/projects/graph-opt/paper-data/EC/set2"
+healthy_subdirectory = "HC"
+patient_subdirectory = "MDD"
+output_directory = "./results-first-paper-dataset"
+
+[optimization_measures_by_band]
+delta = ["cv_weight", "min_weight", "small_worldness"]
+alpha = ["min_weight", "transitivity", "clustering_coefficient"]
+beta = ["cv_weight", "diameter", "modularity"]

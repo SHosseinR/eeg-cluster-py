@@ -3,26 +3,46 @@ Configuration file for EEG connectivity analysis
 """
 
 import os
+import tomllib
+from pathlib import Path
 
 import numpy as np
 
 # ============================================================================
 # PATH CONFIGURATION
 # ============================================================================
-# HC_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\Control"
-# PATIENT_DATA_PATH = "D:\\university\\projects\\graph-opt\\adhd-dataset\\preprocessed\\set2\\ADHD"
-# OUTPUT_DIR = "./results-ADHD"
-DATASET_ROOT = r"D:\university\projects\graph-opt\paper-data\EC\set2"
-HC_DATA_PATH = os.path.join(DATASET_ROOT, "HC")
-PATIENT_DATA_PATH = os.path.join(DATASET_ROOT, "MDD")
-OUTPUT_DIR = "./results-first-paper-dataset"
-TDBRAIN_PREPROCESSED_ROOT = (
-    "D:\\university\\projects\\graph-opt\\tbdbrain\\TDBRAIN_Dataset_V3_1\\"
-    "output\\preprocessed_tdbrain_restEC_set2"
-)
-HC_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "Healthy")
-PATIENT_DATA_PATH = os.path.join(TDBRAIN_PREPROCESSED_ROOT, "MDD")
-OUTPUT_DIR = "./results-TDBRAIN-restEC"
+# Change only this filename to switch datasets. It can also be overridden for a
+# single run with the EEG_DATASET_CONFIG environment variable.
+DATASET_CONFIG_FILE = os.environ.get("EEG_DATASET_CONFIG", "tdbrain.toml")
+DATASET_CONFIG_PATH = Path(__file__).parent / "dataset_configs" / DATASET_CONFIG_FILE
+
+try:
+    with DATASET_CONFIG_PATH.open("rb") as config_file:
+        DATASET_CONFIG = tomllib.load(config_file)
+except FileNotFoundError as exc:
+    raise FileNotFoundError(
+        f"Dataset config not found: {DATASET_CONFIG_PATH}. "
+        "Choose a TOML file from the dataset_configs directory."
+    ) from exc
+
+_REQUIRED_DATASET_KEYS = {
+    "dataset_root",
+    "healthy_subdirectory",
+    "patient_subdirectory",
+    "output_directory",
+    "optimization_measures_by_band",
+}
+_missing_dataset_keys = _REQUIRED_DATASET_KEYS - DATASET_CONFIG.keys()
+if _missing_dataset_keys:
+    raise ValueError(
+        f"Dataset config {DATASET_CONFIG_PATH} is missing keys: "
+        f"{', '.join(sorted(_missing_dataset_keys))}"
+    )
+
+DATASET_ROOT = os.path.normpath(DATASET_CONFIG["dataset_root"])
+HC_DATA_PATH = os.path.join(DATASET_ROOT, DATASET_CONFIG["healthy_subdirectory"])
+PATIENT_DATA_PATH = os.path.join(DATASET_ROOT, DATASET_CONFIG["patient_subdirectory"])
+OUTPUT_DIR = DATASET_CONFIG["output_directory"]
 STEP_TO_START = 1
 
 # Channel display metadata. Exact labels remain authoritative for indexing.
