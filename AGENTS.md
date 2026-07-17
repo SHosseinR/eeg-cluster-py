@@ -58,6 +58,13 @@ scales, and raise on connectivity failure. The historical profiles retain
 band-filtered input, 40 lags, min-max normalization, and zero placeholders for
 saved-result compatibility.
 
+The opt-in `tdbrain_coherence.toml` and `first_paper_coherence.toml` profiles
+fit a separate natural-edge probabilistic classifier for every band. Their
+optimizer minimizes the matching model's Patient probability, preserves the
+natural coherence scale, and constrains candidate matrices by activation,
+coherence-domain, classifier-OOD, observed-manifold, and local-change checks. In this mode the legacy
+`optimization_measures_by_band` lists are not optimization objectives.
+
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 
 ## Architecture map
@@ -80,6 +87,7 @@ Never silently change these values to make a test or figure look better. Configu
 - `visualization.py`: main-pipeline figures.
 - `main.py`: eight-stage orchestration and persisted intermediate artifacts.
 - `classification_score/connectivity_*.py`: standalone natural-scale connectivity benchmarking, synthetic audit, split-half reliability, confound/topology sensitivity, conditional VAR diagnostics, and probability scoring.
+- `classification_score/band_connectivity_classifier.py`: production one-band connectivity-edge comparison, repeated held-out validation, deployable bundles, OOD scoring, and patient rankings.
 
 ### Optimization
 

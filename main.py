@@ -3,6 +3,7 @@ Main pipeline for EEG connectivity analysis
 """
 
 import os
+import shutil
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -15,7 +16,10 @@ from config import (
     NETWORK_MEASURES, STEP_TO_START, CONNECTIVITY_N_JOBS,
     SPECTRAL_CONNECTIVITY_INPUT,
     CLASSIFICATION_MODE, CLASSIFICATION_MODEL, CLASSIFICATION_C,
-    CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
+    CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N,
+    CLASSIFICATION_SOURCE, CLASSIFICATION_MODELS,
+    CLASSIFICATION_SCREEN_REPEATS, CLASSIFICATION_VALIDATION_REPEATS,
+    CLASSIFICATION_N_JOBS
 )
 from data_loader import load_group_data, verify_data_consistency
 from channel_metadata import save_channel_metadata, load_channel_metadata
@@ -36,6 +40,9 @@ from classification import (
     find_best_feature_triplets, get_best_triplet_details,
     create_classification_report, evaluate_all_features,
     create_full_feature_report, analyze_feature_importance
+)
+from classification_score.band_connectivity_classifier import (
+    run_band_classifier_pipeline,
 )
 
 
@@ -419,7 +426,68 @@ def main():
         classification_reports_by_band = {}
         summary_rows = []
 
-        if CLASSIFICATION_MODE == 'triplet':
+        if CLASSIFICATION_SOURCE == 'connectivity_edges':
+            if 'connectivity_matrices' not in locals():
+                connectivity_matrices = np.load(
+                    os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
+                    allow_pickle=True
+                ).item()
+            connectivity_path = os.path.join(
+                OUTPUT_DIR, 'data', 'connectivity_matrices.npy'
+            )
+            channel_metadata_path = os.path.join(
+                OUTPUT_DIR, 'data', 'channel_metadata.json'
+            )
+            classifier_output_dir = os.path.join(
+                OUTPUT_DIR, 'data', 'connectivity_classifiers'
+            )
+            print(
+                "Running independent natural-edge connectivity classifiers "
+                f"for {', '.join(band_names)}"
+            )
+            connectivity_summary = run_band_classifier_pipeline(
+                connectivity_path,
+                channel_metadata_path,
+                classifier_output_dir,
+                method=SELECTED_METHOD,
+                bands=band_names,
+                models=CLASSIFICATION_MODELS,
+                screen_repeats=CLASSIFICATION_SCREEN_REPEATS,
+                validation_repeats=CLASSIFICATION_VALIDATION_REPEATS,
+                n_jobs=CLASSIFICATION_N_JOBS,
+            )
+            classification_summary_df = connectivity_summary.rename(
+                columns={
+                    'accuracy': 'best_accuracy',
+                    'accuracy_repeat_sd': 'best_accuracy_std',
+                }
+            ).copy()
+            classification_summary_df['best_features'] = (
+                classification_summary_df['model'].astype(str)
+                + ' on one-band natural coherence edges'
+            )
+            classification_summary_df = classification_summary_df.sort_values(
+                by='best_accuracy', ascending=False
+            )
+            classification_reports_by_band = {
+                row['band']: row.to_dict()
+                for _, row in connectivity_summary.iterrows()
+            }
+            diagnostics_path = os.path.join(
+                classifier_output_dir, 'band_classifier_diagnostics.png'
+            )
+            if os.path.exists(diagnostics_path):
+                shutil.copy2(
+                    diagnostics_path,
+                    os.path.join(
+                        OUTPUT_DIR,
+                        'figures',
+                        'classification',
+                        'viz5_band_connectivity_classifier_diagnostics.png',
+                    ),
+                )
+
+        elif CLASSIFICATION_MODE == 'triplet':
             top_triplets_by_band = {}
             best_triplets_by_band = {}
 
@@ -651,21 +719,30 @@ def main():
     print("    - viz2_pvalue_matrices.png")
     print("    - viz3_pvalue_per_band.png")
     print("    - viz4_network_pvalues.png")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - viz5_band_connectivity_classifier_diagnostics.png")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - viz5_top_triplets_per_band.png (and additional parts if needed)")
-    print("    - viz6_feature_importance_per_band.png (and additional parts if needed)")
+    if CLASSIFICATION_SOURCE != 'connectivity_edges':
+        print("    - viz6_feature_importance_per_band.png (and additional parts if needed)")
     print("  Data:")
     print("    - connectivity_matrices.npy")
     print("    - network_measures.npy")
     print("    - network_measures_pvalues.csv")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - connectivity_classifiers/classification_summary_by_band_connectivity.csv")
+        print("    - connectivity_classifiers/models/<band>_classifier.joblib")
+        print("    - connectivity_classifiers/classifier_patient_ranking_<band>.csv")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - top_feature_triplets_<band>.csv")
         print("    - classification_summary_by_band.csv")
     else:
         print("    - feature_importance_all_metrics_<band>.csv")
         print("    - classification_summary_by_band_all_metrics.csv")
     print("  Reports:")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - band-specific held-out probability reports in connectivity_classifiers")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - classification_report_<band>.txt")
     else:
         print("    - classification_report_all_metrics_<band>.txt")

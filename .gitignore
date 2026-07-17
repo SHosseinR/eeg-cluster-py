@@ -227,7 +227,11 @@ results-MDD-3/
 results-MDD-5/
 results-MODMA-resting
 results-TDBRAIN-restEC
+results-TDBRAIN-restEC-coherence/
 results-first-paper-dataset
+results-first-paper-coherence/
 results-comparison/
+results-coherence-classifier-comparison/
+run_logs/
 *.rar
 presentation

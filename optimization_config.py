@@ -62,18 +62,19 @@ NSGA_CONFIG = {
     'mutation_eta': 20.0,             # Distribution index for polynomial mutation
     'seed': None,                     # Random seed for reproducibility (None = random)
 }
-OPTIMIZATION_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
+OPTIMIZATION_SETTINGS = DATASET_CONFIG.get("optimization", {})
+OPTIMIZATION_N_JOBS = OPTIMIZATION_SETTINGS.get("n_jobs")
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
 
 # Optional patient filtering before optimization.
 # Generate this ranking with plot_svm_margin_rejection_3d.py.
-PATIENT_REJECTION_PERCENT = 50
+PATIENT_REJECTION_PERCENT = float(OPTIMIZATION_SETTINGS.get("patient_rejection_percent", 50))
+_rejection_by_band = OPTIMIZATION_SETTINGS.get("patient_rejection_percent_by_band", {})
 PATIENT_REJECTION_PERCENT_BY_BAND = {
-    'delta': 50,
-    'alpha': 50,
-    'beta': 50,
+    band: float(_rejection_by_band.get(band, PATIENT_REJECTION_PERCENT))
+    for band in ("delta", "alpha", "beta")
 }
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
     OUTPUT_DIR,
@@ -83,7 +84,9 @@ PATIENT_REJECTION_RANKING_FILE = os.path.join(
 PATIENT_REJECTION_RANKING_FILE_BY_BAND = os.path.join(
     OUTPUT_DIR,
     'data',
-    'svm_margin_subject_ranking_{band}.csv'
+    OPTIMIZATION_SETTINGS.get(
+        "patient_ranking_template", "svm_margin_subject_ranking_{band}.csv"
+    )
 )
 
 # Ranking pool for distance-based selection (grid + NSGA)
@@ -99,7 +102,13 @@ OPTIMIZATION_MODE = 'nsga'
 # Objective mode (how objectives are computed)
 # - 'directional': maximize/minimize based on Patient vs Healthy direction
 # - 'distance_to_gt': minimize distance to Healthy mean (ground truth)
-OPTIMIZATION_OBJECTIVE_MODE = 'distance_to_gt'
+OPTIMIZATION_OBJECTIVE_MODE = OPTIMIZATION_SETTINGS.get(
+    "objective_mode", "distance_to_gt"
+)
+CLASSIFIER_MODEL_DIR = os.path.join(
+    OUTPUT_DIR,
+    OPTIMIZATION_SETTINGS.get("classifier_model_directory", "data/connectivity_classifiers/models"),
+)
 
 # State-space simulation parameters
 # SIMULATION_CONFIG = {
@@ -121,13 +130,19 @@ SIMULATION_CONFIG = {
 # STIMULATION_DURATION_BOUNDS = (1, 20)
 # STIMULATION_AMPLITUDE_BOUNDS = (0.03, 0.3)
 # STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
-STIMULATION_DURATION_BOUNDS = (1, 30)
+STIMULATION_DURATION_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get("stimulation_duration_bounds", (1, 30))
+)
 # Signed and fully configurable:
 #   (0.1, 3.0)   enhancement only
 #   (-3.0, -0.1) suppression only
 #   (-3.0, 3.0)  let the optimizer choose polarity (current default)
-STIMULATION_AMPLITUDE_BOUNDS = (0.1, 3.0)
-STIMULATION_LEAK_BOUNDS = (0.0, 2.0)
+STIMULATION_AMPLITUDE_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get("stimulation_amplitude_bounds", (0.1, 3.0))
+)
+STIMULATION_LEAK_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get("stimulation_leak_bounds", (0.0, 2.0))
+)
 
 # Hard feasibility bounds on raw final/baseline activation ratios. Candidates
 # outside this range are rejected by NSGA-II before the clipped ratios can make

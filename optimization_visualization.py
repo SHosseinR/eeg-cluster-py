@@ -36,7 +36,7 @@ def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = N
     top_k = min(top_k, len(best_front))
 
     objectives = np.array([sol['objectives'] for sol in best_front])
-    if objective_mode == "distance_to_gt":
+    if objective_mode in ("distance_to_gt", "classifier_patient_probability"):
         ideal_point = np.zeros(objectives.shape[1], dtype=float)
     else:
         ideal_point = objectives.min(axis=0)
@@ -1204,7 +1204,24 @@ def plot_pareto_fronts(optimization_results: Dict,
     # Select first 3 subjects for visualization
     subjects_to_plot = list(optimization_results.keys())[:3]
     
-    if n_objectives == 3:
+    if n_objectives == 1:
+        n_plots = min(3, len(subjects_to_plot))
+        fig, axes = plt.subplots(1, n_plots, figsize=figsize, squeeze=False)
+        for subject_id, ax in zip(subjects_to_plot, axes[0]):
+            results = optimization_results[subject_id]
+            front = results.get('best_front') or []
+            objectives = np.asarray([item['objectives'] for item in front], dtype=float)
+            if objectives.size:
+                ax.scatter(np.arange(len(objectives)), objectives[:, 0], c='steelblue', s=35)
+            best = results.get('best_solution')
+            if best is not None:
+                ax.axhline(float(best['objectives'][0]), color='crimson', linestyle='--', label='Best')
+            ax.set_xlabel('Candidate on final front')
+            ax.set_ylabel(optimization_measures[0])
+            ax.set_title(str(subject_id), fontsize=11, fontweight='bold')
+            ax.grid(alpha=0.3)
+            ax.legend()
+    elif n_objectives == 3:
         # 3D Pareto front
         fig = plt.figure(figsize=figsize)
         
@@ -1275,6 +1292,43 @@ def plot_pareto_fronts(optimization_results: Dict,
     
     # plt.show()
     
+    return fig
+
+
+def plot_probability_changes(optimization_results: Dict, save_path: str = None):
+    """Plot the classifier probability objective before and after stimulation."""
+
+    rows = []
+    for key, result in optimization_results.items():
+        initial = result.get('initial_metrics')
+        final = result.get('final_metrics')
+        if initial is None or final is None or not len(initial) or not len(final):
+            continue
+        rows.append((str(key), result.get('fixed_band_name'), float(initial[0]), float(final[0])))
+    if not rows:
+        return None
+    bands = [row[1] or 'all' for row in rows]
+    initial = np.asarray([row[2] for row in rows])
+    final = np.asarray([row[3] for row in rows])
+    palette = {'delta': '#457b9d', 'alpha': '#2a9d8f', 'beta': '#e76f51', 'all': '#6c757d'}
+    colors = [palette.get(band, '#6c757d') for band in bands]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    axes[0].scatter(initial, final, c=colors, alpha=0.7, edgecolor='white', linewidth=0.4)
+    axes[0].plot([0, 1], [0, 1], 'k--', linewidth=1)
+    axes[0].set(xlim=(0, 1), ylim=(0, 1), xlabel='Initial P(Patient)', ylabel='Optimized P(Patient)')
+    axes[0].set_title('Classifier objective shift')
+    improvement = initial - final
+    for band in dict.fromkeys(bands):
+        values = improvement[np.asarray(bands) == band]
+        axes[1].hist(values, bins=15, alpha=0.55, label=band, color=palette.get(band))
+    axes[1].axvline(0, color='black', linestyle='--', linewidth=1)
+    axes[1].set(xlabel='Reduction in P(Patient)', ylabel='Optimization units')
+    axes[1].set_title('Probability reduction (positive is objective improvement)')
+    axes[1].legend()
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Classifier probability changes saved to: {save_path}")
     return fig
 
 
@@ -1366,6 +1420,13 @@ def plot_optimization_summary(optimization_results: Dict,
         optimization_measures,
         save_path=os.path.join(overview_dir, 'pareto_fronts_sample.png')
     )
+
+    if optimization_measures == ['patient_probability']:
+        print("  - Initial vs optimized classifier probability")
+        plot_probability_changes(
+            optimization_results,
+            save_path=os.path.join(overview_dir, 'classifier_probability_changes.png')
+        )
     
     print(f"\nAll plots saved to: {overview_dir}")
 
@@ -1463,7 +1524,9 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
 
         f.write("Top-K ranking:\n")
-        if objective_mode == 'distance_to_gt':
+        if objective_mode == 'classifier_patient_probability':
+            f.write("  - Direct minimization of P(Patient); zero is the ideal point\n")
+        elif objective_mode == 'distance_to_gt':
             f.write("  - Distance to GT (L2 norm of objective vector; 0 = perfect match)\n")
         else:
             f.write("  - Distance to ideal point (L2 norm of objectives)\n")
@@ -1665,7 +1728,7 @@ def create_optimization_report(optimization_results: Dict,
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
                         gt_distance = None
-                        if objective_mode == 'distance_to_gt':
+                        if objective_mode in ('distance_to_gt', 'classifier_patient_probability'):
                             obj_vals = ranked_sol.get('objectives')
                             if obj_vals is not None:
                                 try:

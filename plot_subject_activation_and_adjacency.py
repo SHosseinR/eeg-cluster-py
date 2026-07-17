@@ -145,6 +145,11 @@ def main() -> None:
 
     optimization_results = _load_pickle_dict(results_path)
     subject_id = args.subject
+    if subject_id == "__first__":
+        first_result = next(iter(optimization_results.values()), None)
+        if not isinstance(first_result, dict) or not first_result.get("subject_id"):
+            raise RuntimeError("No subject result is available for automatic selection")
+        subject_id = str(first_result["subject_id"])
     result_key = _select_result_key(optimization_results, subject_id, args.band)
     results = optimization_results[result_key]
     subject_id = results.get("subject_id", subject_id)
@@ -173,10 +178,13 @@ def main() -> None:
 
     duration = best_solution.get("stimulation_duration")
     amplitude = best_solution.get("stimulation_amplitude")
+    leak = best_solution.get("leak")
     if duration is None:
         duration = float(SIMULATION_CONFIG["stimulation_duration"])
     if amplitude is None:
         amplitude = float(SIMULATION_CONFIG["stimulation_amplitude"])
+    if leak is None:
+        leak = float(SIMULATION_CONFIG.get("leak", 0.0))
 
     connectivity_path = os.path.join(OUTPUT_DIR, "data", "connectivity_matrices.npy")
     if not os.path.exists(connectivity_path):
@@ -198,7 +206,7 @@ def main() -> None:
         stimulation_amplitude=float(amplitude),
         dt=float(SIMULATION_CONFIG["dt"]),
         stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
-        leak=float(SIMULATION_CONFIG.get("leak", 0.0)),
+        leak=float(leak),
     )
     node_idx = int(best_solution["node"])
     node_label = channel_names[node_idx] if node_idx < len(channel_names) else f"Node {node_idx}"
@@ -269,9 +277,11 @@ def main() -> None:
     fig.colorbar(im, ax=ax, shrink=0.9)
     fig.tight_layout()
 
-    activation_heatmap_path = os.path.join(
-        output_dir, f"{file_tag}_activation_before_after_heatmap.png"
-    )
+    # Keep generated paths below the traditional Windows MAX_PATH limit.  The
+    # experiment-specific optimization directory is already deliberately
+    # descriptive, so long figure suffixes can otherwise make an ordinary run
+    # fail after the expensive optimization has completed.
+    activation_heatmap_path = os.path.join(output_dir, f"{file_tag}_act_heatmap.png")
     fig.savefig(activation_heatmap_path, dpi=300, bbox_inches="tight")
     print(f"Saved activation heatmap to: {activation_heatmap_path}")
 
@@ -301,7 +311,7 @@ def main() -> None:
     fig.colorbar(im1, ax=axes, shrink=0.8, pad=-0.3, fraction=0.07)
     fig.tight_layout()
 
-    adjacency_path = os.path.join(output_dir, f"{file_tag}_adjacency_before_after.png")
+    adjacency_path = os.path.join(output_dir, f"{file_tag}_adj_compare.png")
     fig.savefig(adjacency_path, dpi=300, bbox_inches="tight")
     print(f"Saved adjacency comparison to: {adjacency_path}")
 
