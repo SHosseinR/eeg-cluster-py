@@ -1,8 +1,11 @@
 # Band-specific coherence probability pipeline
 
 The opt-in profiles `tdbrain_coherence.toml` and
-`first_paper_coherence.toml` implement a distinct experiment from the legacy
-graph-measure objective.
+`first_paper_coherence.toml` implement signed stimulation with 50% independent
+per-band patient rejection. The separate
+`*_coherence_enhancement_no_rejection.toml` profiles use strictly positive
+amplitudes `[0.1, 3.0]`, retain every patient, and write to isolated output
+trees. Both variants are distinct from the legacy graph-measure objective.
 
 For each of delta, alpha, and beta, the analysis pipeline extracts only that
 band's natural-scale upper-triangle coherence edges. It compares probabilistic
@@ -39,6 +42,46 @@ Run TD-BRAIN only:
 ```powershell
 ./run_coherence_probability_pipeline.ps1 -DatasetConfigs tdbrain_coherence.toml
 ```
+
+After the signed/rejected experiment is complete, run both enhancement-only,
+zero-rejection experiments with:
+
+```powershell
+./run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs @(
+    "tdbrain_coherence_enhancement_no_rejection.toml",
+    "first_paper_coherence_enhancement_no_rejection.toml"
+  ) `
+  -ComparisonOutputDir "results-coherence-classifier-comparison-enhancement-no-rejection"
+```
+
+The runner now creates fixed baseline-fitted PCA cohort/shift figures, replaces
+the one-objective Pareto plot with convergence and trust-boundary diagnostics,
+and creates three per-band plus one all-band validity-weighted 2D target map.
+The same PCA scaler/projection fitted to original subjects transforms optimized
+matrices; it is never refitted after optimization.
+
+If optimization results already exist and only downstream figures/audits need
+to be resumed, use `-FiguresOnly`. This mode does not run EEG analysis,
+classification, or optimization:
+
+```powershell
+./run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs tdbrain_coherence_enhancement_no_rejection.toml `
+  -FiguresOnly
+```
+
+The enhancement/no-rejection profiles deliberately use the short optimization
+subdirectory `opt-clfprob-trust-enh-norej` to remain below Windows `MAX_PATH`.
+Each run also writes `optimization_subject_completeness.csv`; future
+optimizations additionally write exact per-subject error manifests in each
+band's subject-results directory.
+
+Timing outputs are written at three levels:
+
+- `pipeline_timings_<timestamp>.csv` in the repository root for each invoked command;
+- `<output>/reports/analysis_stage_timings.csv`, including connectivity and classification;
+- `<optimization-output>/optimization_stage_timings.csv`, including each optimization band.
 
 The main classifier artifacts are written under
 `<output>/data/connectivity_classifiers/`. Optimization results and figures are

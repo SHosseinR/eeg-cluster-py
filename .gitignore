@@ -232,6 +232,10 @@ results-first-paper-dataset
 results-first-paper-coherence/
 results-comparison/
 results-coherence-classifier-comparison/
+results-coherence-classifier-comparison-enhancement-no-rejection/
+results-TDBRAIN-restEC-coherence-enhancement-no-rejection/
+results-first-paper-coherence-enhancement-no-rejection/
+pipeline_timings_*.csv
 run_logs/
 *.rar
 presentation

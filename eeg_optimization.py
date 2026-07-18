@@ -2,6 +2,7 @@
 Complete EEG optimization pipeline using NSGA-II
 """
 import os
+import csv
 import numpy as np
 from typing import Dict, List, Tuple, Callable, Optional
 import copy
@@ -519,6 +520,11 @@ class EEGOptimizer:
                 'classifier_local_change_threshold': float(self.classifier_bundle.local_change_rms_threshold),
                 'updated_connectivity_min': float(np.min(edges)),
                 'updated_connectivity_max': float(np.max(edges)),
+                # The details dictionary is discarded during candidate
+                # evaluation. It is persisted only when the selected best
+                # solution is re-evaluated below, enabling fixed-projection
+                # before/after visualizations without rerunning simulation.
+                'updated_connectivity_matrix': updated_matrix,
             })
         else:
             measure_values = []
@@ -839,7 +845,22 @@ class EEGOptimizer:
             band_name = best_solution.get('band_name') or self.band_names[band_idx]
             initial_metrics = self._extract_initial_metrics(subject_id, band_name)
 
-            if 'measure_values' in best_solution:
+            if self.objective_mode == "classifier_patient_probability":
+                # Re-evaluate exactly one selected solution so its complete
+                # connectivity matrix and trust diagnostics are saved. NSGA's
+                # candidate records intentionally remain lightweight.
+                objectives, measure_values, details = evaluate_with_details(
+                    node=int(best_solution['node']),
+                    band_idx=band_idx,
+                    stimulation_duration=best_solution.get('stimulation_duration'),
+                    stimulation_amplitude=best_solution.get('stimulation_amplitude'),
+                    stimulation_leak=best_solution.get('leak')
+                )
+                best_solution['objectives'] = objectives
+                best_solution['measure_values'] = measure_values.tolist()
+                best_solution.update(details)
+                final_metrics = measure_values
+            elif 'measure_values' in best_solution:
                 final_metrics = np.array(best_solution['measure_values'], dtype=float)
             else:
                 objectives, measure_values, details = evaluate_with_details(
@@ -948,6 +969,7 @@ class EEGOptimizer:
         max_workers = min(max_workers, total_subjects) if total_subjects > 0 else 1
 
         all_results = {}
+        optimization_failures = {}
         if max_workers <= 1 or total_subjects <= 1:
             print(f"Running optimization sequentially (workers={max_workers})")
             for i, subject_id in enumerate(patient_subjects):
@@ -962,6 +984,7 @@ class EEGOptimizer:
                         all_results[subject_id] = results
                 except Exception as e:
                     print(f"ERROR optimizing {subject_id}: {str(e)}")
+                    optimization_failures[str(subject_id)] = str(e)
                     continue
         else:
             print(f"Running optimization in parallel with {max_workers} processes...")
@@ -987,13 +1010,24 @@ class EEGOptimizer:
                         print(f"[{i}/{total_subjects}] Completed {subject_id}")
                     except Exception as e:
                         print(f"[{i}/{total_subjects}] ERROR optimizing {subject_id}: {str(e)}")
+                        optimization_failures[str(subject_id)] = str(e)
                         continue
         
         self.optimization_results = all_results
+        self.optimization_failures = optimization_failures
+        if result_dir:
+            failure_path = os.path.join(result_dir, 'optimization_failures.csv')
+            with open(failure_path, 'w', newline='', encoding='utf-8') as handle:
+                writer = csv.DictWriter(handle, fieldnames=['subject_id', 'error'])
+                writer.writeheader()
+                for failed_subject, error in sorted(optimization_failures.items()):
+                    writer.writerow({'subject_id': failed_subject, 'error': error})
+            print(f"Optimization failure manifest: {failure_path}")
         
         print(f"\n{'='*80}")
         print(f"OPTIMIZATION COMPLETE")
         print(f"Successfully optimized: {len(all_results)}/{len(patient_subjects)} subjects")
+        print(f"Subjects without a feasible saved solution: {len(optimization_failures)}")
         print(f"{'='*80}")
         
         return all_results

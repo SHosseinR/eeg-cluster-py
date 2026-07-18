@@ -4,6 +4,7 @@ Main pipeline for EEG connectivity analysis
 
 import os
 import shutil
+import time
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -127,6 +128,13 @@ def create_output_directories():
 
 def main():
     """Main analysis pipeline."""
+    pipeline_started = time.perf_counter()
+    timing_rows = []
+
+    def finish_timing(stage, started):
+        elapsed = time.perf_counter() - started
+        timing_rows.append({'stage': stage, 'seconds': elapsed})
+        print(f"\nTIMING {stage}: {elapsed:.2f} seconds ({elapsed / 60.0:.2f} minutes)")
     
     print("\n" + "="*80)
     print("EEG CONNECTIVITY ANALYSIS PIPELINE")
@@ -143,6 +151,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 1:
+        stage_started = time.perf_counter()
         healthy_data = load_group_data(HC_DATA_PATH, group_name="Healthy")
         patient_data = load_group_data(PATIENT_DATA_PATH, group_name="Patient")
         
@@ -160,6 +169,7 @@ def main():
             channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
             save_channel_metadata(channel_metadata, channel_metadata_path)
             print(f"\nSaved channel metadata: {channel_metadata_path}")
+        finish_timing('step1_load_data', stage_started)
         
     # ========================================================================
     # STEP 2: SIGNAL PROCESSING (EPOCHING & FILTERING)
@@ -169,6 +179,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 2:
+        stage_started = time.perf_counter()
         all_subjects_filtered = {}
         
         for group_data, group_name in [(healthy_data, "Healthy"), (patient_data, "Patient")]:
@@ -205,6 +216,7 @@ def main():
         del healthy_data, patient_data
         if 'all_data' in locals():
             del all_data
+        finish_timing('step2_epoch_and_filter', stage_started)
         
     # ========================================================================
     # STEP 3: CONNECTIVITY ANALYSIS
@@ -214,6 +226,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 3:
+        stage_started = time.perf_counter()
         if 'all_subjects_filtered' not in locals():
             index_path = _filtered_epochs_index_path()
             if not os.path.exists(index_path):
@@ -285,6 +298,7 @@ def main():
                 allow_pickle=True
             )
             print("Saved analysis metadata")
+        finish_timing('step3_connectivity', stage_started)
         
     # ========================================================================
     # STEP 4: VISUALIZATIONS 1-3
@@ -294,6 +308,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 4:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 4:
             connectivity_matrices = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
@@ -336,6 +351,7 @@ def main():
             index=False
         )
         print("\nSaved connectivity edge-prevalence summary to CSV")
+        finish_timing('step4_connectivity_figures_and_statistics', stage_started)
         
     # ========================================================================
     # STEP 5: NETWORK MEASURES
@@ -346,6 +362,7 @@ def main():
     print(f"Using connectivity method: {SELECTED_METHOD.upper()}")
 
     if STEP_TO_START <= 5:
+        stage_started = time.perf_counter()
         # Filter connectivity matrices to selected method only
         selected_connectivity = {}
         for group_name in connectivity_matrices.keys():
@@ -366,6 +383,7 @@ def main():
         np.save(os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
                 network_measures, allow_pickle=True)
         print(f"\nSaved network measures")
+        finish_timing('step5_network_measures', stage_started)
 
     # ========================================================================
     # STEP 6: STATISTICAL ANALYSIS
@@ -375,6 +393,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 6:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 6:
             network_measures = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
@@ -401,6 +420,7 @@ def main():
             pvalue_df,
             output_path=os.path.join(OUTPUT_DIR, 'figures', 'network_statistics', 'viz4_network_pvalues.png')
         )
+        finish_timing('step6_statistical_analysis', stage_started)
         
     # ========================================================================
     # STEP 7: FEATURE EXTRACTION & CLASSIFICATION
@@ -410,6 +430,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 7:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 7:
             network_measures = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
@@ -642,6 +663,7 @@ def main():
                 f"Unsupported CLASSIFICATION_MODE '{CLASSIFICATION_MODE}'. "
                 "Use 'triplet' or 'all_metrics'."
             )
+        finish_timing('step7_classification', stage_started)
     
     # ========================================================================
     # STEP 8: FINAL SUMMARY
@@ -649,6 +671,7 @@ def main():
     print("\n" + "="*80)
     print("STEP 8: CREATING SUMMARY REPORT")
     print("="*80)
+    stage_started = time.perf_counter()
     
     # Compile summary information
     n_healthy = len(network_measures.get('Healthy', {})) if 'network_measures' in locals() else 0
@@ -705,6 +728,16 @@ def main():
         summary_info,
         output_path=os.path.join(OUTPUT_DIR, 'reports', 'summary_report.png')
     )
+    finish_timing('step8_summary_report', stage_started)
+    timing_rows.append({
+        'stage': 'analysis_pipeline_total',
+        'seconds': time.perf_counter() - pipeline_started,
+    })
+    timing_path = os.path.join(OUTPUT_DIR, 'reports', 'analysis_stage_timings.csv')
+    pd.DataFrame(timing_rows).assign(
+        minutes=lambda frame: frame['seconds'] / 60.0
+    ).to_csv(timing_path, index=False)
+    print(f"Saved analysis stage timings: {timing_path}")
     
     # ========================================================================
     # FINAL OUTPUT

@@ -4,6 +4,7 @@ Main script to run NSGA-II optimization for EEG connectivity
 import math
 import os
 import sys
+import time
 os.environ.setdefault("MPLBACKEND", "Agg")
 import numpy as np
 import pandas as pd
@@ -472,6 +473,8 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
 
 def main():
     """Main optimization pipeline."""
+    pipeline_started = time.perf_counter()
+    timing_rows = []
     
     print("\n" + "="*80)
     print("NSGA-II OPTIMIZATION PIPELINE FOR EEG CONNECTIVITY")
@@ -483,6 +486,7 @@ def main():
     create_output_directories()
     
     # Load data
+    stage_started = time.perf_counter()
     try:
         connectivity_matrices, network_measures, subject_data, channel_names, channel_display_names, channel_metadata = \
             load_data_for_optimization()
@@ -492,6 +496,10 @@ def main():
         print("  - connectivity_matrices.npy")
         print("  - network_measures.npy")
         raise
+    timing_rows.append({
+        'stage': 'load_optimization_inputs',
+        'seconds': time.perf_counter() - stage_started,
+    })
 
     if not OPTIMIZATION_PER_BAND:
         try:
@@ -589,6 +597,7 @@ def main():
                     OPTIMIZATION_OUTPUT_DIR,
                     f"{band_name}_subject_results"
                 )
+                band_started = time.perf_counter()
                 optimizer.optimize_all_patients(
                     verbose=True,
                     n_jobs=OPTIMIZATION_N_JOBS,
@@ -597,6 +606,10 @@ def main():
                 )
                 optimization_results = _load_subject_optimization_results(subject_result_dir)
                 optimizer.optimization_results = optimization_results
+                timing_rows.append({
+                    'stage': f'optimize_{band_name}',
+                    'seconds': time.perf_counter() - band_started,
+                })
             except Exception as e:
                 print(f"\nERROR during optimization for band {band_name}: {str(e)}")
                 import traceback
@@ -724,6 +737,7 @@ def main():
                 OPTIMIZATION_OUTPUT_DIR,
                 "subject_results"
             )
+            optimization_started = time.perf_counter()
             optimizer.optimize_all_patients(
                 verbose=True,
                 n_jobs=OPTIMIZATION_N_JOBS,
@@ -732,6 +746,10 @@ def main():
             )
             optimization_results = _load_subject_optimization_results(subject_result_dir)
             optimizer.optimization_results = optimization_results
+            timing_rows.append({
+                'stage': 'optimize_all_bands',
+                'seconds': time.perf_counter() - optimization_started,
+            })
         except Exception as e:
             print(f"\nERROR during optimization: {str(e)}")
             import traceback
@@ -799,6 +817,15 @@ def main():
             import traceback
             traceback.print_exc()
     
+    timing_rows.append({
+        'stage': 'optimization_pipeline_total',
+        'seconds': time.perf_counter() - pipeline_started,
+    })
+    timing_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization_stage_timings.csv')
+    pd.DataFrame(timing_rows).assign(
+        minutes=lambda frame: frame['seconds'] / 60.0
+    ).to_csv(timing_path, index=False)
+
     # Summary
     print("\n" + "="*80)
     print("OPTIMIZATION PIPELINE COMPLETE")
@@ -810,6 +837,7 @@ def main():
         print(f"  - Per-band results: {OPTIMIZATION_OUTPUT_DIR}/*_{OPTIMIZATION_RESULTS_FILE}")
     print(f"  - Figures: {OPTIMIZATION_FIGURES_DIR}")
     print(f"  - Report: {report_path}")
+    print(f"  - Stage timings: {timing_path}")
     if 'candidate_stats_outputs' in locals() and candidate_stats_outputs:
         print("  - Candidate-region statistics:")
         for stats_output in candidate_stats_outputs:

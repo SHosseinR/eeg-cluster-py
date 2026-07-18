@@ -64,6 +64,13 @@ optimizer minimizes the matching model's Patient probability, preserves the
 natural coherence scale, and constrains candidate matrices by activation,
 coherence-domain, classifier-OOD, observed-manifold, and local-change checks. In this mode the legacy
 `optimization_measures_by_band` lists are not optimization objectives.
+These profiles use signed amplitudes `[-3, 3]` and 50% independent per-band
+patient rejection. The corresponding
+`*_coherence_enhancement_no_rejection.toml` profiles use amplitudes
+`[0.1, 3.0]`, retain every patient, and have separate analysis and optimization
+output trees. The coherence runner records analysis-stage, per-band
+optimization, and command-level timings and generates fixed baseline-PCA
+shifts plus classifier-validity-weighted 2D target maps.
 
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 
