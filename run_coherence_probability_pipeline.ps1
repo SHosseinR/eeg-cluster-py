@@ -4,7 +4,8 @@ param(
         "first_paper_coherence.toml"
     ),
     [string]$Python = "D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe",
-    [string]$ComparisonOutputDir = "results-coherence-classifier-comparison",
+    [string]$RunOutputDir = "",
+    [string]$ComparisonOutputDir = "",
     [switch]$AnalysisOnly,
     [switch]$FiguresOnly
 )
@@ -23,6 +24,13 @@ if ($AnalysisOnly -and $FiguresOnly) {
 }
 $timings = [System.Collections.Generic.List[object]]::new()
 $currentDataset = ""
+$effectiveComparisonOutputDir = if ($ComparisonOutputDir) {
+    $ComparisonOutputDir
+} elseif ($RunOutputDir) {
+    Join-Path $RunOutputDir "results-coherence-classifier-comparison"
+} else {
+    "results-coherence-classifier-comparison"
+}
 
 function Invoke-PythonChecked {
     param(
@@ -78,7 +86,7 @@ foreach ($datasetConfig in $DatasetConfigs) {
     Invoke-PythonChecked "figures_optimization_overview_and_statistics" "regenerate_classifier_optimization_figures.py" "--dataset-config" $datasetConfig
     Invoke-PythonChecked "figure_best_closeness" "plot_best_closeness_per_subject.py"
     Invoke-PythonChecked "figure_weighted_node_band" "plot_weighted_node_band_interactive.py"
-    Invoke-PythonChecked "figure_subject_example" "plot_subject_activation_and_adjacency.py" "--subject" "__first__" "--band" "delta"
+    Invoke-PythonChecked "figure_subject_example" "plot_subject_activation_and_adjacency.py" "--subject" "__first__"
     Invoke-PythonChecked "figure_fixed_pca_projection" "plot_classifier_feature_projection.py" "--dataset-config" $datasetConfig
     Invoke-PythonChecked "figure_band_stability" "plot_band_stability_analysis.py" "--bootstrap-resamples" "10000"
     Invoke-PythonChecked "figures_validity_weighted_targets" "plot_weighted_selection_target_3d.py" "--dataset-config" $datasetConfig
@@ -90,12 +98,22 @@ if (-not $AnalysisOnly -and $DatasetConfigs.Count -gt 1) {
     foreach ($datasetConfig in $DatasetConfigs) {
         $comparisonArguments += @("--dataset-config", $datasetConfig)
     }
-    $comparisonArguments += @("--output-dir", $ComparisonOutputDir)
+    $comparisonArguments += @("--output-dir", $effectiveComparisonOutputDir)
     Invoke-PythonChecked "figure_cross_dataset_targets" @comparisonArguments
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$timingPath = Join-Path $repo "pipeline_timings_$timestamp.csv"
+$timingRoot = if ($RunOutputDir) {
+    if ([System.IO.Path]::IsPathRooted($RunOutputDir)) {
+        $RunOutputDir
+    } else {
+        Join-Path $repo $RunOutputDir
+    }
+} else {
+    $repo
+}
+New-Item -ItemType Directory -Path $timingRoot -Force | Out-Null
+$timingPath = Join-Path $timingRoot "pipeline_timings_$timestamp.csv"
 $timings | Export-Csv -LiteralPath $timingPath -NoTypeInformation -Encoding UTF8
 Write-Host "`nComplete. Each profile contains analysis, band classifiers, optimization, and applicable figures."
 Write-Host "Runner timings: $timingPath"

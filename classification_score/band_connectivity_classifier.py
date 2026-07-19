@@ -216,13 +216,25 @@ def select_band_models(summary: pd.DataFrame) -> dict[str, str]:
     return selected
 
 
-def _acceptance(metrics: Mapping[str, Any]) -> tuple[bool, list[str]]:
+def _acceptance(
+    metrics: Mapping[str, Any],
+    *,
+    minimum_roc_auc: float = 0.75,
+    minimum_balanced_accuracy: float = 0.70,
+    maximum_brier: float = 0.20,
+) -> tuple[bool, list[str]]:
     """Apply the predeclared minimum evidence gate for optimization use."""
 
     checks = {
-        "ROC AUC >= 0.75": float(metrics["roc_auc"]) >= 0.75,
-        "balanced accuracy >= 0.70": float(metrics["balanced_accuracy"]) >= 0.70,
-        "Brier score <= 0.20": float(metrics["brier"]) <= 0.20,
+        f"ROC AUC >= {minimum_roc_auc:.3g}": (
+            float(metrics["roc_auc"]) >= minimum_roc_auc
+        ),
+        f"balanced accuracy >= {minimum_balanced_accuracy:.3g}": (
+            float(metrics["balanced_accuracy"]) >= minimum_balanced_accuracy
+        ),
+        f"Brier score <= {maximum_brier:.3g}": (
+            float(metrics["brier"]) <= maximum_brier
+        ),
     }
     failed = [name for name, passed in checks.items() if not passed]
     return not failed, failed
@@ -240,6 +252,9 @@ def train_band_bundles(
     mode: str = "full",
     inner_splits: int = 5,
     n_jobs: int = 1,
+    minimum_roc_auc: float = 0.75,
+    minimum_balanced_accuracy: float = 0.70,
+    maximum_brier: float = 0.20,
 ) -> dict[str, BandConnectivityClassifier]:
     """Fit and save one deployable classifier bundle for every band."""
 
@@ -264,6 +279,11 @@ def train_band_bundles(
     manifest: dict[str, Any] = {
         "method": method,
         "label_mapping": GROUP_LABELS,
+        "acceptance_thresholds": {
+            "minimum_roc_auc": minimum_roc_auc,
+            "minimum_balanced_accuracy": minimum_balanced_accuracy,
+            "maximum_brier": maximum_brier,
+        },
         "bands": {},
     }
     for band in bands:
@@ -286,7 +306,12 @@ def train_band_bundles(
                 f"Deployment tuning mode {mode!r} differs from validated mode "
                 f"{validated_mode!r} for {band}"
             )
-        accepted, failed = _acceptance(cv_metrics)
+        accepted, failed = _acceptance(
+            cv_metrics,
+            minimum_roc_auc=minimum_roc_auc,
+            minimum_balanced_accuracy=minimum_balanced_accuracy,
+            maximum_brier=maximum_brier,
+        )
         estimator, best_params = fit_tuned_model(
             X,
             y,
@@ -412,6 +437,9 @@ def run_band_classifier_pipeline(
     screen_repeats: int = 1,
     validation_repeats: int = 5,
     n_jobs: int = 1,
+    minimum_roc_auc: float = 0.75,
+    minimum_balanced_accuracy: float = 0.70,
+    maximum_brier: float = 0.20,
 ) -> pd.DataFrame:
     """Compare, validate, fit, and report independent band classifiers."""
 
@@ -459,6 +487,9 @@ def run_band_classifier_pipeline(
         comparison_path=output_dir / "classification_summary_by_band_connectivity.csv",
         mode="quick",
         n_jobs=n_jobs,
+        minimum_roc_auc=minimum_roc_auc,
+        minimum_balanced_accuracy=minimum_balanced_accuracy,
+        maximum_brier=maximum_brier,
     )
     for band in bands:
         part = predictions[(predictions["band"] == band) & (predictions["y_true"] == 1)]
@@ -560,6 +591,9 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--mode", choices=("quick", "full"), default="quick")
     train.add_argument("--inner-splits", type=int, default=5)
     train.add_argument("--n-jobs", type=int, default=1)
+    train.add_argument("--minimum-roc-auc", type=float, default=0.75)
+    train.add_argument("--minimum-balanced-accuracy", type=float, default=0.70)
+    train.add_argument("--maximum-brier", type=float, default=0.20)
     return parser
 
 
@@ -590,6 +624,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         mode=args.mode,
         inner_splits=args.inner_splits,
         n_jobs=args.n_jobs,
+        minimum_roc_auc=args.minimum_roc_auc,
+        minimum_balanced_accuracy=args.minimum_balanced_accuracy,
+        maximum_brier=args.maximum_brier,
     )
     for band, bundle in bundles.items():
         print(

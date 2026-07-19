@@ -171,8 +171,27 @@ CLASSIFICATION_VALIDATION_REPEATS = int(
     CLASSIFICATION_SETTINGS.get("validation_repeats", 5)
 )
 CLASSIFICATION_N_JOBS = int(CLASSIFICATION_SETTINGS.get("n_jobs", 1))
+CLASSIFICATION_MINIMUM_ROC_AUC = float(
+    CLASSIFICATION_SETTINGS.get("minimum_roc_auc", 0.75)
+)
+CLASSIFICATION_MINIMUM_BALANCED_ACCURACY = float(
+    CLASSIFICATION_SETTINGS.get("minimum_balanced_accuracy", 0.70)
+)
+CLASSIFICATION_MAXIMUM_BRIER = float(
+    CLASSIFICATION_SETTINGS.get("maximum_brier", 0.20)
+)
 if CLASSIFICATION_SOURCE not in {"network_measures", "connectivity_edges"}:
     raise ValueError(f"Unknown classification source: {CLASSIFICATION_SOURCE}")
+for threshold_name, threshold_value in {
+    "minimum_roc_auc": CLASSIFICATION_MINIMUM_ROC_AUC,
+    "minimum_balanced_accuracy": CLASSIFICATION_MINIMUM_BALANCED_ACCURACY,
+    "maximum_brier": CLASSIFICATION_MAXIMUM_BRIER,
+}.items():
+    if not 0.0 <= threshold_value <= 1.0:
+        raise ValueError(
+            f"classification.{threshold_name} must be between 0 and 1; "
+            f"got {threshold_value}"
+        )
 
 # ============================================================================
 # VISUALIZATION PARAMETERS

@@ -235,6 +235,7 @@ results-coherence-classifier-comparison/
 results-coherence-classifier-comparison-enhancement-no-rejection/
 results-TDBRAIN-restEC-coherence-enhancement-no-rejection/
 results-first-paper-coherence-enhancement-no-rejection/
+results-signed-no-rejection/
 pipeline_timings_*.csv
 run_logs/
 *.rar

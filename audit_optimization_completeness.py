@@ -18,7 +18,8 @@ def audit(dataset_config: str, output: str | None = None) -> Path:
     )
     results = load_npy_dict(profile.optimization_results_path, 'optimization results')
     patient_ids = sorted(str(value) for value in connectivity['Patient'])
-    bands = ordered_bands(results)
+    metadata = next(iter(results.values()))
+    bands = list(metadata.get('band_names') or ordered_bands(results))
     rows = []
     for band in bands:
         by_subject = {

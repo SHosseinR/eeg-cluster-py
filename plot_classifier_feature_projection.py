@@ -206,7 +206,8 @@ def generate_projection_figures(dataset_config: str, output_dir: str | None = No
         raise ValueError(f"Expected one connectivity method, found {sorted(methods)}")
     method = next(iter(methods))
 
-    bands = ordered_bands(results)
+    metadata = next(iter(results.values()))
+    bands = list(metadata.get("band_names") or ordered_bands(results))
     destination = Path(output_dir) if output_dir else (
         profile.optimization_figures_dir / "classifier_projection"
     )

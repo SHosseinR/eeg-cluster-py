@@ -13,6 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from classification_score.band_connectivity_classifier import (
     BandConnectivityClassifier,
+    _acceptance,
     matrix_ood_rms,
     predict_patient_probability,
     select_band_models,
@@ -21,6 +22,18 @@ from classification_score.band_connectivity_classifier import (
 
 
 class BandConnectivityClassifierTests(unittest.TestCase):
+    def test_balanced_accuracy_gate_is_configurable(self):
+        metrics = {"roc_auc": 0.80, "balanced_accuracy": 0.69, "brier": 0.18}
+        accepted_default, failed_default = _acceptance(metrics)
+        accepted_relaxed, failed_relaxed = _acceptance(
+            metrics, minimum_balanced_accuracy=0.65
+        )
+
+        self.assertFalse(accepted_default)
+        self.assertIn("balanced accuracy >= 0.7", failed_default)
+        self.assertTrue(accepted_relaxed)
+        self.assertEqual(failed_relaxed, [])
+
     def test_selection_prefers_calibration_within_auc_tolerance(self):
         summary = pd.DataFrame([
             {"band": "alpha", "model": "linear_svm_sigmoid", "roc_auc": 0.82, "brier": 0.20, "ece_10": 0.14},

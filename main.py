@@ -20,7 +20,8 @@ from config import (
     CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N,
     CLASSIFICATION_SOURCE, CLASSIFICATION_MODELS,
     CLASSIFICATION_SCREEN_REPEATS, CLASSIFICATION_VALIDATION_REPEATS,
-    CLASSIFICATION_N_JOBS
+    CLASSIFICATION_N_JOBS, CLASSIFICATION_MINIMUM_ROC_AUC,
+    CLASSIFICATION_MINIMUM_BALANCED_ACCURACY, CLASSIFICATION_MAXIMUM_BRIER
 )
 from data_loader import load_group_data, verify_data_consistency
 from channel_metadata import save_channel_metadata, load_channel_metadata
@@ -476,6 +477,9 @@ def main():
                 screen_repeats=CLASSIFICATION_SCREEN_REPEATS,
                 validation_repeats=CLASSIFICATION_VALIDATION_REPEATS,
                 n_jobs=CLASSIFICATION_N_JOBS,
+                minimum_roc_auc=CLASSIFICATION_MINIMUM_ROC_AUC,
+                minimum_balanced_accuracy=CLASSIFICATION_MINIMUM_BALANCED_ACCURACY,
+                maximum_brier=CLASSIFICATION_MAXIMUM_BRIER,
             )
             classification_summary_df = connectivity_summary.rename(
                 columns={

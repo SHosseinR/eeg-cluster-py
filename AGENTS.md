@@ -71,6 +71,11 @@ patient rejection. The corresponding
 output trees. The coherence runner records analysis-stage, per-band
 optimization, and command-level timings and generates fixed baseline-PCA
 shifts plus classifier-validity-weighted 2D target maps.
+The `*_coherence_signed_no_rejection.toml` profiles retain every patient, use
+signed amplitudes `[-3, 3]`, and group both datasets, cross-dataset figures,
+and runner timings beneath
+`results-signed-no-rejection/`, retaining the dataset-level `results-*`
+directory names inside that parent.
 
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 

@@ -146,11 +146,15 @@ def main() -> None:
     optimization_results = _load_pickle_dict(results_path)
     subject_id = args.subject
     if subject_id == "__first__":
-        first_result = next(iter(optimization_results.values()), None)
+        first_item = next(iter(optimization_results.items()), None)
+        if first_item is None:
+            raise RuntimeError("No subject result is available for automatic selection")
+        result_key, first_result = first_item
         if not isinstance(first_result, dict) or not first_result.get("subject_id"):
             raise RuntimeError("No subject result is available for automatic selection")
         subject_id = str(first_result["subject_id"])
-    result_key = _select_result_key(optimization_results, subject_id, args.band)
+    else:
+        result_key = _select_result_key(optimization_results, subject_id, args.band)
     results = optimization_results[result_key]
     subject_id = results.get("subject_id", subject_id)
     best_solution = results.get("best_solution")

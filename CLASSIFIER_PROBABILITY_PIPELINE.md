@@ -77,6 +77,41 @@ Each run also writes `optimization_subject_completeness.csv`; future
 optimizations additionally write exact per-subject error manifests in each
 band's subject-results directory.
 
+## Signed stimulation without rejection
+
+The profiles `tdbrain_coherence_signed_no_rejection.toml` and
+`first_paper_coherence_signed_no_rejection.toml` retain every patient and use
+signed amplitude bounds `[-3, 3]`. Unlike the older flat experiment outputs,
+all artifacts are grouped under one parent while retaining the familiar
+`results-*` folder names:
+
+```text
+results-signed-no-rejection/
+  results-TDBRAIN-restEC-coherence/
+    data/
+    figures/
+    reports/
+    optimization/
+  results-first-paper-coherence/
+    data/
+    figures/
+    reports/
+    optimization/
+  results-coherence-classifier-comparison/
+  pipeline_timings_<timestamp>.csv
+```
+
+Run the complete two-dataset experiment with:
+
+```powershell
+./run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs @(
+    "tdbrain_coherence_signed_no_rejection.toml",
+    "first_paper_coherence_signed_no_rejection.toml"
+  ) `
+  -RunOutputDir "results-signed-no-rejection"
+```
+
 Timing outputs are written at three levels:
 
 - `pipeline_timings_<timestamp>.csv` in the repository root for each invoked command;

@@ -22,12 +22,16 @@ def regenerate(dataset_config: str) -> None:
         metadata.get('channel_display_names') or metadata.get('channel_names') or []
     )
     bands = ordered_bands(results)
+    configured_bands = list(metadata.get('band_names') or bands)
     measures = list(metadata.get('optimization_measures') or ['patient_probability'])
     top_k = int(metadata.get('top_k') or 5)
     plot_optimization_summary(
         optimization_results=results,
         channel_names=channel_names,
-        band_names=bands,
+        # Preserve the original configured indices. If a classifier is gated
+        # out, remaining solutions may still use indices 1 and 2; passing only
+        # the two present names would make histogram/heatmap shapes disagree.
+        band_names=configured_bands,
         optimization_measures=measures,
         output_dir=str(profile.optimization_figures_dir),
         top_k=top_k,
