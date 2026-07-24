@@ -83,11 +83,13 @@ and runner timings beneath
 `results-signed-no-rejection/`, retaining the dataset-level `results-*`
 directory names inside that parent.
 
-The `tdbrain_coherence_static_signed_no_rejection_{logistic,rbf}.toml`
-profiles reuse their matching prior TD-BRAIN analysis/classifier artifacts
-read-only and write new static-model optimization results to isolated trees.
-They use signed total-change bounds `[-3, 3]`, incident-edge scaling, no
-patient rejection, and do not reload raw EEG baselines. The
+The `*_coherence_static_signed_no_rejection_logistic.toml` profiles run
+self-contained TD-BRAIN and First Paper analysis/classification/optimization
+pipelines beneath one isolated result parent. The TD-BRAIN static RBF profile
+can instead reuse its matching prior analysis/classifier artifacts read-only.
+All static profiles use signed total-change bounds `[-3, 3]`, incident-edge
+scaling, no patient rejection, and do not reload raw EEG baselines during
+optimization. The
 `tdbrain_coherence_advanced_classifiers.toml` profile adds optional PyTorch
 GCN and BrainNetCNN families for classification comparison only.
 

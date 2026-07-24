@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import tomllib
 import unittest
 
 import numpy as np
@@ -11,6 +13,33 @@ from stimulation_models import apply_static_adjacency_stimulation
 
 
 class StaticAdjacencyStimulationTests(unittest.TestCase):
+    def test_logistic_full_pipeline_profiles_share_static_contract(self):
+        config_dir = Path(__file__).resolve().parent / "dataset_configs"
+        profiles = (
+            "tdbrain_coherence_static_signed_no_rejection_logistic.toml",
+            "first_paper_coherence_static_signed_no_rejection_logistic.toml",
+        )
+        output_directories = []
+        for profile in profiles:
+            with (config_dir / profile).open("rb") as stream:
+                settings = tomllib.load(stream)
+            optimization = settings["optimization"]
+            self.assertEqual(settings["classification"]["models"], ["logistic_l2"])
+            self.assertEqual(optimization["stimulation_model"], "static_adjacency")
+            self.assertEqual(optimization["static_edge_scope"], "incident")
+            self.assertEqual(
+                optimization["stimulation_total_change_bounds"], [-3.0, 3.0]
+            )
+            self.assertEqual(optimization["patient_rejection_percent"], 0)
+            self.assertNotIn("analysis_input_directory", optimization)
+            output_directories.append(settings["output_directory"])
+        self.assertTrue(
+            all(
+                path.startswith("./results-static-signed-no-rejection-logistic/")
+                for path in output_directories
+            )
+        )
+
     def test_incident_change_is_weight_scaled_symmetric_and_conserved(self):
         matrix = np.array(
             [

@@ -25,14 +25,21 @@ Duration and leak are absent because there is no state-space trajectory.
 Saved solutions use `stimulation_total_change`; `stimulation_amplitude`
 contains the same value only as a compatibility alias for older plot loaders.
 
-The supplied TD-BRAIN profiles reuse the matching prior analysis and
-classifier artifacts read-only, skip raw-EEG baseline loading, retain every
-patient, use natural-scale coherence, and write new results locally:
+The supplied logistic profiles run complete, isolated analysis and
+classification pipelines for TD-BRAIN and First Paper. Their static
+optimization stages skip raw-EEG baseline loading, retain every patient, use
+natural-scale coherence, and consume the artifacts created earlier in the
+same pipeline:
 
 - `tdbrain_coherence_static_signed_no_rejection_logistic.toml`
+- `first_paper_coherence_static_signed_no_rejection_logistic.toml`
+
+The TD-BRAIN RBF alternative reuses the matching prior analysis and classifier
+artifacts read-only:
+
 - `tdbrain_coherence_static_signed_no_rejection_rbf.toml`
 
-Both profiles use:
+All static profiles use:
 
 - bands: delta, alpha, beta (one optimization per band);
 - method: coherence (`coh`);
@@ -44,17 +51,21 @@ Both profiles use:
 - NSGA-II: population 100, 50 generations;
 - workers: 4.
 
-Run one of the full experiments from this worktree (not run during
-development):
+Run the complete two-dataset logistic experiment from this worktree (not run
+during development):
 
 ```powershell
 Set-Location D:\university\projects\worktree\eeg-static-stim-graph-classifiers
 
-$env:EEG_DATASET_CONFIG = "tdbrain_coherence_static_signed_no_rejection_logistic.toml"
-D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe run_optimization.py
+.\run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs @(
+    "tdbrain_coherence_static_signed_no_rejection_logistic.toml",
+    "first_paper_coherence_static_signed_no_rejection_logistic.toml"
+  ) `
+  -RunOutputDir "results-static-signed-no-rejection-logistic"
 ```
 
-RBF alternative:
+TD-BRAIN RBF optimization-only alternative:
 
 ```powershell
 $env:EEG_DATASET_CONFIG = "tdbrain_coherence_static_signed_no_rejection_rbf.toml"
@@ -115,11 +126,38 @@ coherence, and CPU PyTorch. Runtime was 9.9 minutes.
 | delta+alpha+beta | BrainNetCNN 3-band | 0.778 | 0.725 | 0.197 |
 | delta+alpha+beta | GCN 3-band | 0.528 | 0.500 | 0.249 |
 
-The advanced neural models did not improve on the regularized beta-band
-logistic classifier. That negative comparison is important: 327 subjects are
-modest for deep graph learning, the channel-aligned edge representation is
-already well suited to regularization, and added model capacity did not
-generalize better. A pretrained graph model was not used because the
+### Neural-training completion audit
+
+All 200 planned neural outer-fold fits completed: 150 single-band fits and 50
+three-band fits. The saved OOF tables contain exactly 9,810 single-band and
+3,270 fused prediction rows, all 327 subjects appear once in every one of the
+five repeats for every model/band, and there are no missing probabilities.
+Training uses early stopping, so "complete" means reaching the declared
+stopping rule rather than forcing all 160 maximum epochs.
+
+A separate representative beta-fold audit also reconstructed each model's
+seeded initial weights and compared them with the trained state:
+
+- GCN: stopped at epoch 66/160; parameter L2 change 1.245; validation loss
+  0.693.
+- BrainNetCNN: stopped at epoch 42/160; parameter L2 change 2.666; validation
+  loss 0.495.
+
+Thus both networks really updated their weights. The poor GCN result is a
+model collapse/generalization problem, not a skipped fit: its averaged OOF
+probabilities had only 0.0016-0.0040 standard deviation and stayed close to
+the class prior. Dense, all-positive coherence graphs become nearly
+homogeneous after GCN degree normalization and global pooling, so this
+architecture discards much of the electrode-pair-specific signal.
+BrainNetCNN did learn nontrivial predictions (probability standard deviation
+0.163-0.196) but generalized less consistently than logistic regression.
+
+The advanced neural models therefore did not improve on the regularized
+beta-band logistic classifier in this experiment. This does not establish
+that every possible neural architecture must lose. It shows that with 327
+subjects, 325 explicitly aligned edge features, and these predeclared neural
+architectures/hyperparameters, the lower-variance L2 logistic model
+generalizes better. A pretrained graph model was not used because the
 repository provides no checkpoint with the same 26-channel order, coherence
 estimator, band definitions, and cohort contract; transferring an unrelated
 graph checkpoint would not preserve this experiment's feature semantics.
@@ -144,12 +182,16 @@ predictions, a PNG comparison, and a generated Markdown report below
 
 ## Verification
 
-- 21 final-state focused tests passed for static stimulation, NSGA variable
-  layout, classifier constraints, graph-model fit/predict/serialization,
-  three-band fusion, and result plotting.
-- The broader focused run passed 35 tests, and all four suites in
+- 30 final-state focused tests passed for static stimulation, the two
+  full-pipeline profile contracts, NSGA variable layout, classifier
+  constraints, graph-model fit/predict/serialization, three-band fusion, and
+  saved-result plotting.
+- An earlier broader focused run passed 35 tests, and all four suites in
   `test_optimization.py` passed.
 - Python compilation and `git diff --check` passed.
+- The real one-subject static artifact generated inspected edge-change,
+  edge-profile, and before/after adjacency figures; the state-space branch of
+  the same subject plotting command was also regression-tested.
 - The discoverable suite has one unrelated existing failure in
   `test_plot_weighted_selection_target_3d`: its bipolar-reference position
   assertion fails identically in the untouched source worktree.

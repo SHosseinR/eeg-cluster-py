@@ -125,6 +125,8 @@ def _rank_best_front(
                 "band_name": sol.get("band_name"),
                 "stimulation_duration": sol.get("stimulation_duration"),
                 "stimulation_amplitude": sol.get("stimulation_amplitude"),
+                "stimulation_total_change": sol.get("stimulation_total_change"),
+                "stimulation_model": sol.get("stimulation_model"),
                 "objectives": sol["objectives"],
                 "distance": float(distances[idx]),
                 "rank": rank,
@@ -181,6 +183,23 @@ def _format_value(value: Optional[float], precision: int = 4) -> str:
         return "n/a"
 
 
+def _format_stimulation_details(
+    solution: Dict,
+    leak_value: Optional[float],
+) -> List[str]:
+    total_change = solution.get("stimulation_total_change")
+    if total_change is not None:
+        return [
+            "model=static_adjacency",
+            f"total_change={_format_value(total_change)}",
+        ]
+    return [
+        f"duration={_format_value(solution.get('stimulation_duration'))}",
+        f"amplitude={_format_value(solution.get('stimulation_amplitude'))}",
+        f"leak={_format_value(solution.get('leak', leak_value))}",
+    ]
+
+
 def _build_hover_details(
     entries: List[Dict],
     leak_value: Optional[float],
@@ -203,9 +222,7 @@ def _build_hover_details(
                     f"rank={sol.get('rank', 'n/a')}",
                     f"strength={_format_value(sol.get('strength'), 3)}",
                     f"closeness={_format_value(sol.get('distance'), 4)}",
-                    f"duration={_format_value(sol.get('stimulation_duration'))}",
-                    f"amplitude={_format_value(sol.get('stimulation_amplitude'))}",
-                    f"leak={_format_value(sol.get('leak', leak_value))}",
+                    *_format_stimulation_details(sol, leak_value),
                 ]
             )
         )
@@ -296,9 +313,7 @@ def _build_scatter_3d_figure(
                     f"rank={sol.get('rank', 'n/a')}",
                     f"strength={_format_value(sol.get('strength'), 3)}",
                     f"closeness={_format_value(sol.get('distance'), 4)}",
-                    f"duration={_format_value(sol.get('stimulation_duration'))}",
-                    f"amplitude={_format_value(sol.get('stimulation_amplitude'))}",
-                    f"leak={_format_value(sol.get('leak', leak_value))}",
+                    *_format_stimulation_details(sol, leak_value),
                 ]
             )
         )

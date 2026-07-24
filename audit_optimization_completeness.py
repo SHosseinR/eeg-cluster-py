@@ -39,7 +39,16 @@ def audit(dataset_config: str, output: str | None = None) -> Path:
                 'status': 'optimized_feasible' if success else 'no_saved_feasible_solution',
                 'initial_patient_probability': float(initial[0]),
                 'optimized_patient_probability': float(final[0]),
+                'stimulation_model': solution.get(
+                    'stimulation_model',
+                    (result or {}).get('stimulation_model', 'state_space'),
+                ),
                 'stimulation_amplitude': float(solution.get('stimulation_amplitude', np.nan)),
+                'stimulation_total_change': (
+                    float(solution['stimulation_total_change'])
+                    if solution.get('stimulation_total_change') is not None
+                    else np.nan
+                ),
                 'constraint_violation': float(solution.get('constraint_violation', np.nan)),
             })
     destination = Path(output) if output else (
