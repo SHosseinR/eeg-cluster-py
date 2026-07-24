@@ -1,12 +1,12 @@
-# TD-BRAIN coherence classifier experiment: signed stimulation and no patient
-# rejection. All artifacts live under one nested experiment result tree.
-dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/output/preprocessed_tdbrain_restEC_set2"
-healthy_subdirectory = "Healthy"
+# First-paper eyes-closed coherence classifier experiment: signed stimulation,
+# no patient rejection, and RBF-SVM-only band classifiers.
+dataset_root = "D:/university/projects/graph-opt/paper-data/EC/set2"
+healthy_subdirectory = "HC"
 patient_subdirectory = "MDD"
 
-output_directory = "./results-signed-no-rejection-2/results-TDBRAIN-restEC-coherence"
+output_directory = "./results-signed-no-rejection-rbf/results-first-paper-coherence"
 optimization_output_subdirectory = "optimization"
-optimization_debug_subject = "sub-88064657"
+optimization_debug_subject = "MDD S2  EC"
 
 [connectivity]
 methods = ["coh"]
@@ -18,7 +18,7 @@ n_jobs = 4
 
 [classification]
 source = "connectivity_edges"
-models = ["logistic_l2", "linear_svm_sigmoid", "rbf_svm", "extra_trees"]
+models = ["rbf_svm"]
 screen_repeats = 1
 validation_repeats = 5
 n_jobs = 4
@@ -37,6 +37,6 @@ stimulation_amplitude_bounds = [-3.0, 3.0]
 # Required by the shared configuration schema, but not optimization objectives
 # in classifier_patient_probability mode.
 [optimization_measures_by_band]
-delta = ["char_path_length", "diameter", "transitivity"]
-alpha = ["local_efficiency", "global_efficiency", "char_path_length"]
-beta = ["median_weight", "std_weight", "diameter"]
+delta = ["cv_weight", "min_weight", "small_worldness"]
+alpha = ["min_weight", "transitivity", "clustering_coefficient"]
+beta = ["cv_weight", "diameter", "modularity"]

@@ -1,10 +1,10 @@
-# TD-BRAIN coherence classifier experiment: signed stimulation and no patient
-# rejection. All artifacts live under one nested experiment result tree.
+# TD-BRAIN coherence classifier experiment: signed stimulation, no patient
+# rejection, and RBF-SVM-only band classifiers.
 dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/output/preprocessed_tdbrain_restEC_set2"
 healthy_subdirectory = "Healthy"
 patient_subdirectory = "MDD"
 
-output_directory = "./results-signed-no-rejection-2/results-TDBRAIN-restEC-coherence"
+output_directory = "./results-signed-no-rejection-rbf/results-TDBRAIN-restEC-coherence"
 optimization_output_subdirectory = "optimization"
 optimization_debug_subject = "sub-88064657"
 
@@ -18,7 +18,7 @@ n_jobs = 4
 
 [classification]
 source = "connectivity_edges"
-models = ["logistic_l2", "linear_svm_sigmoid", "rbf_svm", "extra_trees"]
+models = ["rbf_svm"]
 screen_repeats = 1
 validation_repeats = 5
 n_jobs = 4
