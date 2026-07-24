@@ -13,7 +13,7 @@ import numpy as np
 # ============================================================================
 # Change only this filename to switch datasets. It can also be overridden for a
 # single run with the EEG_DATASET_CONFIG environment variable.
-DATASET_CONFIG_FILE = os.environ.get("EEG_DATASET_CONFIG", "tdbrain.toml")
+DATASET_CONFIG_FILE = os.environ.get("EEG_DATASET_CONFIG", "tdbrain_coherence.toml")
 DATASET_CONFIG_PATH = Path(__file__).parent / "dataset_configs" / DATASET_CONFIG_FILE
 
 try:

@@ -80,6 +80,7 @@ Never silently change these values to make a test or figure look better. Configu
 - `visualization.py`: main-pipeline figures.
 - `main.py`: eight-stage orchestration and persisted intermediate artifacts.
 - `classification_score/connectivity_*.py`: standalone natural-scale connectivity benchmarking, synthetic audit, split-half reliability, confound/topology sensitivity, conditional VAR diagnostics, and probability scoring.
+- `classification_score/broadband_var*.py`: broadband regularized VAR, frequency-domain PDC/DTF, stability/whiteness/time-reversal diagnostics, and resumable full-dataset validation.
 
 ### Optimization
 

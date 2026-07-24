@@ -229,5 +229,6 @@ results-MODMA-resting
 results-TDBRAIN-restEC
 results-first-paper-dataset
 results-comparison/
+results-TDBRAIN-restEC-coherence/
 *.rar
 presentation

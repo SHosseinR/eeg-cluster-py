@@ -99,6 +99,30 @@ D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connecti
 D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/connectivity_audit.py
 ```
 
+The corrected directed benchmark fits one regularized VAR to 1-45 Hz
+broadband epochs at 100 Hz, selects a physical lag duration and ridge strength
+by held-out-epoch prediction without cohort labels, and derives band-specific
+PDC/DTF from that model. It also checks full/odd/even/reversed stability,
+residual autocorrelation, split-half edge reliability, and whether directed
+asymmetry reverses when the EEG is reversed in time:
+
+```powershell
+$env:OMP_NUM_THREADS = "1"
+$env:MKL_NUM_THREADS = "1"
+$env:OPENBLAS_NUM_THREADS = "1"
+$env:NUMEXPR_NUM_THREADS = "1"
+
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe `
+  classification_score/broadband_var_benchmark.py `
+  --profiles first_paper tdbrain --models logistic_l2 `
+  --n-jobs 4 --resume --run-name broadband_var_v3
+```
+
+The BLAS limits prevent each worker from creating its own large numerical
+thread pool. Subject caches are resumable. `diagnostic_summary.json` contains
+the validity gate; classification rows marked `classification_valid=False`
+are exploratory scores and must not be selected for stimulation.
+
 The production-safe experiment profiles do not overwrite historical results:
 
 ```powershell
@@ -165,11 +189,14 @@ D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/selected
 - `selected_model.py`: final fit/load/score API and CLI;
 - `connectivity_methods.py`: Fourier, envelope, conditional VAR, PDC, and DTF estimators;
 - `connectivity_benchmark.py`: resumable reliability and nested-CV comparison;
+- `broadband_var.py`: broadband ridge VAR plus frequency-domain PDC/DTF and diagnostics;
+- `broadband_var_benchmark.py`: resumable full-dataset directed-connectivity audit;
 - `connectivity_sensitivity.py`: global-strength versus topology controls;
 - `connectivity_confound_checks.py`: age/sex-matched connectivity validation;
 - `connectivity_audit.py`: synthetic GC and saved-artifact QC;
 - `selected_connectivity_model.py`: selected connectivity probability API and CLI;
 - `test_classification_score.py`: focused synthetic contract tests;
+- `test_broadband_var.py`: synthetic directed-chain recovery and reversal test;
 - `results/`: CSV summaries and out-of-fold predictions;
 - `models/`: fitted joblib artifacts plus JSON provenance.
 

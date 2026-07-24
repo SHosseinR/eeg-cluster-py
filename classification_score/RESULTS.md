@@ -100,9 +100,41 @@ contain an edge equal to one. The opt-in `*_connectivity_v2.toml` profiles use
 broadband input, approximately 100 ms dataset-specific orders, natural scales,
 explicit failure propagation, and separate output trees.
 
-First-paper DTF reached AUC 0.918, but its narrow-band VAR residual lag-1
-correlation averaged 0.628. This fails the innovation diagnostic, so DTF is
-provisional/invalid and is not selected. The full TD VAR run was stopped after
-a checkpointed subset pending broadband/order correction.
+The corrected directed follow-up fitted a regularized VAR once to 1-45 Hz
+broadband EEG resampled to 100 Hz. Candidate lag durations were 50, 100, and
+200 ms; ridge strengths were 1, 10, 100, and 1000. Selection used held-out
+epochs within each subject without cohort labels. Delta/alpha/beta PDC and DTF
+were then derived from that one model rather than fitting separate narrow-band
+VARs.
+
+| Dataset | Directed representation | Subjects entering CV | AUC | Balanced accuracy | Brier | Valid? |
+|---|---|---:|---:|---:|---:|---|
+| TD-BRAIN | PDC | 244/327 | 0.715 | 0.668 | 0.231 | No |
+| TD-BRAIN | DTF | 244/327 | 0.702 | 0.622 | 0.223 | No |
+| First-paper | PDC | 58/58 | 0.965 | 0.913 | 0.074 | No |
+| First-paper | DTF | 58/58 | 0.924 | 0.879 | 0.109 | No |
+
+The TD-BRAIN exclusion pattern invalidates its CV result: stable full-data
+models were unavailable for 76/151 patients but only 7/176 controls (Fisher
+exact p = 1.50e-23). Even-half stability among retained subjects was 0.865.
+Forcing representative rejected subjects stable with ridge strengths from
+10,000 to 1,000,000 raised residual lag-1 correlations to 0.25-0.52 and
+worsened validation error, so stronger shrinkage did not provide a valid
+rescue.
+
+Residual whitening otherwise passed for 0.980 of retained TD-BRAIN subjects
+and 0.983 of first-paper subjects. However, real-data directed asymmetry did
+not reverse when time was reversed: median forward-versus-negated-reversed
+Spearman correlations were -0.505/-0.600 for TD-BRAIN PDC/DTF and
+-0.596/-0.717 for first-paper. The same diagnostic is positive on the
+synthetic directed-chain ground truth. This is a diagnostic adaptation, not a
+claim of biological causality, but its systematic failure means the high
+first-paper AUC cannot validate the edge directions.
+
+Split-half edge reliability was also dataset and band dependent. First-paper
+median rho ranged from 0.609 to 0.851; TD-BRAIN ranged from 0.274 to 0.714,
+with the weakest results in delta. Consequently neither PDC nor DTF is
+selected as a stimulation objective. The prior narrow-band DTF result is
+superseded by this broadband audit.
 
 Until those checks pass, the classifier is a stronger separation experiment—not a validated stimulation target or treatment recommendation.
