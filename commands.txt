@@ -12,3 +12,16 @@ python plot_weighted_node_band_interactive.py
 python plot_band_stability_analysis.py
 python plot_optimization_metric_shift_3d.py
 python plot_weighted_selection_target_3d.py
+
+
+##
+Set-Location D:\university\projects\worktree\eeg-coherence-band-classifier
+
+.\run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs @(
+    "tdbrain_coherence_signed_no_rejection_rbf.toml",
+    "first_paper_coherence_signed_no_rejection_rbf.toml"
+  ) `
+  -RunOutputDir "results-signed-no-rejection-rbf"
+
+  

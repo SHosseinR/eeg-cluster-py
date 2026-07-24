@@ -1,9 +1,14 @@
+# TD-BRAIN coherence classifier experiment: enhancement-only stimulation and
+# no patient rejection. This profile intentionally has an isolated output tree
+# because both choices change the scientific experiment.
 dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/output/preprocessed_tdbrain_restEC_set2"
 healthy_subdirectory = "Healthy"
 patient_subdirectory = "MDD"
 
-output_directory = "./results-TDBRAIN-restEC-coherence"
-optimization_output_subdirectory = "optimization-nsga-classifier-probability-coherence-trust-region"
+output_directory = "./results-TDBRAIN-restEC-coherence-enhancement-no-rejection"
+# Deliberately short: longer scientific labels exceed Windows MAX_PATH once
+# nested figure names are appended.
+optimization_output_subdirectory = "opt-clfprob-trust-enh-norej"
 optimization_debug_subject = "sub-88064657"
 
 [connectivity]
@@ -25,9 +30,9 @@ n_jobs = 4
 objective_mode = "classifier_patient_probability"
 classifier_model_directory = "data/connectivity_classifiers/models"
 patient_ranking_template = "connectivity_classifiers/classifier_patient_ranking_{band}.csv"
-patient_rejection_percent = 50
+patient_rejection_percent = 0
 n_jobs = 4
-stimulation_amplitude_bounds = [-3.0, 3.0]
+stimulation_amplitude_bounds = [0.1, 3.0]
 
 # Required by the shared configuration schema and still available for legacy
 # graph reports. These measures are NOT optimization objectives when

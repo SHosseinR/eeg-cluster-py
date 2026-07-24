@@ -322,6 +322,7 @@ class NSGAIIOptimizer:
         self.best_front = None
         self.history = []
         self.all_solutions = []
+        self.final_population_solutions = []
 
     def _build_solutions(
         self,
@@ -431,6 +432,13 @@ class NSGAIIOptimizer:
         self.best_front = self._build_solutions(
             self.result.X, self.result.F, getattr(self.result, 'G', None)
         )
+        final_population = getattr(self.result, 'pop', None)
+        if final_population is not None:
+            self.final_population_solutions = self._build_solutions(
+                final_population.get("X"),
+                final_population.get("F"),
+                final_population.get("G"),
+            )
 
         # Collect all solutions from history (fallback to final population)
         all_X = []

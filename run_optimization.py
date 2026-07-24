@@ -4,6 +4,7 @@ Main script to run NSGA-II optimization for EEG connectivity
 import math
 import os
 import sys
+import time
 os.environ.setdefault("MPLBACKEND", "Agg")
 import numpy as np
 import pandas as pd
@@ -20,8 +21,10 @@ from optimization_config import (
     OPTIMIZATION_TOP_K, OPTIMIZATION_MODE,
     OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND,
     PATIENT_REJECTION_PERCENT, PATIENT_REJECTION_RANKING_FILE,
-    PATIENT_REJECTION_PERCENT_BY_BAND, PATIENT_REJECTION_RANKING_FILE_BY_BAND
+    PATIENT_REJECTION_PERCENT_BY_BAND, PATIENT_REJECTION_RANKING_FILE_BY_BAND,
+    OPTIMIZATION_OBJECTIVE_MODE, CLASSIFIER_MODEL_DIR
 )
+from classification_score.band_connectivity_classifier import load_band_bundle
 
 # Import optimization modules
 from eeg_optimization import create_optimizer_from_config
@@ -37,7 +40,7 @@ from statistics_utils import (
 
 # Import data loading (assuming these exist in your main pipeline)
 from data_loader import load_subject_epochs
-from channel_metadata import get_display_channel_names
+from channel_metadata import get_display_channel_names, load_channel_metadata
 
 
 def create_output_directories():
@@ -154,21 +157,20 @@ def load_data_for_optimization():
     
     # You need to specify your data paths
     # Replace these with your actual paths from config
-    from config import HC_DATA_PATH, PATIENT_DATA_PATH
+    from config import PATIENT_DATA_PATH
     
     subject_data = {}
-    subject_data.update(_load_group_baseline_data(HC_DATA_PATH, "Healthy"))
     subject_data.update(_load_group_baseline_data(PATIENT_DATA_PATH, "Patient"))
 
     print(f"Loaded baseline activations for {len(subject_data)} subjects")
 
     # Get channel names (assuming all subjects have same channels)
     first_subject = list(subject_data.values())[0]
-    channel_names = first_subject['channels']
-    channel_metadata = first_subject.get('channel_metadata') or {
-        'channel_names': channel_names,
-        'channel_display_names': first_subject.get('channel_display_names', channel_names),
-    }
+    saved_channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
+    channel_metadata = load_channel_metadata(saved_channel_metadata_path)
+    channel_names = list(channel_metadata['channel_names'])
+    if list(first_subject['channels']) != channel_names:
+        raise ValueError("Patient baseline channel order differs from analysis metadata")
     channel_display_names = get_display_channel_names(channel_metadata, n_nodes=len(channel_names))
     
     print(f"✓ Number of channels: {len(channel_names)}")
@@ -184,6 +186,8 @@ def load_data_for_optimization():
 
 
 def _get_measures_for_band(band_name: str) -> List[str]:
+    if OPTIMIZATION_OBJECTIVE_MODE == 'classifier_patient_probability':
+        return ['patient_probability']
     if OPTIMIZATION_MEASURES_BY_BAND:
         return OPTIMIZATION_MEASURES_BY_BAND.get(band_name, OPTIMIZATION_MEASURES)
     return OPTIMIZATION_MEASURES
@@ -242,6 +246,13 @@ def apply_patient_rejection_filter(connectivity_matrices, network_measures, subj
         ranking_path = _format_rejection_ranking_path(PATIENT_REJECTION_RANKING_FILE)
         required_columns = {'subject_id', 'aggregate_rank', 'aggregate_margin_percentile'}
         sort_columns = ['aggregate_rank', 'aggregate_margin_percentile', 'subject_id']
+    elif OPTIMIZATION_OBJECTIVE_MODE == 'classifier_patient_probability':
+        ranking_path = _format_rejection_ranking_path(
+            PATIENT_REJECTION_RANKING_FILE_BY_BAND,
+            band_name=band_name
+        )
+        required_columns = {'subject_id', 'rank', 'patient_probability'}
+        sort_columns = ['rank', 'patient_probability', 'subject_id']
     else:
         ranking_path = _format_rejection_ranking_path(
             PATIENT_REJECTION_RANKING_FILE_BY_BAND,
@@ -323,14 +334,14 @@ def save_candidate_region_selection_stats(
     output_label = f" ({label})" if label else ""
     file_stem = f"{file_prefix}_" if file_prefix else ""
     hard_figure_prefix = (
-        f"{figure_prefix}_hard_best_solution_target_statistics"
+        f"{figure_prefix}_hard_targets"
         if figure_prefix else
-        "hard_best_solution_target_statistics"
+        "hard_targets"
     )
     weighted_figure_prefix = (
-        f"{figure_prefix}_rank_weighted_target_statistics"
+        f"{figure_prefix}_weighted_targets"
         if figure_prefix else
-        "rank_weighted_target_statistics"
+        "weighted_targets"
     )
 
     stats_df = compute_candidate_region_selection_stats(
@@ -361,6 +372,7 @@ def save_candidate_region_selection_stats(
         statistics_dir = os.path.join(
             figures_dir, "target_statistics", statistics_scope
         )
+        os.makedirs(statistics_dir, exist_ok=True)
         figure_paths = plot_candidate_region_statistics(
             stats_df,
             channel_names,
@@ -405,6 +417,18 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
     healthy_subjects = list(network_measures['Healthy'].keys())
     print(f"Number of healthy subjects: {len(healthy_subjects)}")
     
+    if OPTIMIZATION_OBJECTIVE_MODE == 'classifier_patient_probability':
+        print("\nObjective: minimize held-out-validated P(Patient), one model per band")
+        for band_name in FREQUENCY_BANDS:
+            classifier_path = os.path.join(CLASSIFIER_MODEL_DIR, f"{band_name}_classifier.joblib")
+            bundle = load_band_bundle(classifier_path)
+            if bundle.band != band_name or bundle.method != SELECTED_METHOD:
+                raise ValueError(f"Classifier contract mismatch: {classifier_path}")
+            gate = "accepted" if bundle.accepted_for_optimization else "not accepted"
+            print(f"  - {band_name}: {bundle.model_name}, {gate}, AUC={bundle.cv_metrics['roc_auc']:.3f}")
+        print("\nAll classifier-probability requirements verified")
+        return
+
     # Verify measures exist
     if OPTIMIZATION_PER_BAND:
         print("\nOptimization measures by band:")
@@ -449,6 +473,8 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
 
 def main():
     """Main optimization pipeline."""
+    pipeline_started = time.perf_counter()
+    timing_rows = []
     
     print("\n" + "="*80)
     print("NSGA-II OPTIMIZATION PIPELINE FOR EEG CONNECTIVITY")
@@ -460,6 +486,7 @@ def main():
     create_output_directories()
     
     # Load data
+    stage_started = time.perf_counter()
     try:
         connectivity_matrices, network_measures, subject_data, channel_names, channel_display_names, channel_metadata = \
             load_data_for_optimization()
@@ -468,7 +495,11 @@ def main():
         print("\nMake sure you have run the main pipeline first to generate:")
         print("  - connectivity_matrices.npy")
         print("  - network_measures.npy")
-        return
+        raise
+    timing_rows.append({
+        'stage': 'load_optimization_inputs',
+        'seconds': time.perf_counter() - stage_started,
+    })
 
     if not OPTIMIZATION_PER_BAND:
         try:
@@ -479,7 +510,7 @@ def main():
             )
         except Exception as e:
             print(f"\nERROR applying patient rejection filter: {str(e)}")
-            return
+            raise
     else:
         configured_band_rejections = {
             band_name: percent
@@ -502,7 +533,7 @@ def main():
         verify_optimization_requirements(connectivity_matrices, network_measures)
     except Exception as e:
         print(f"\nERROR in verification: {str(e)}")
-        return
+        raise
     
     if OPTIMIZATION_PER_BAND:
         results_by_band = {}
@@ -524,6 +555,18 @@ def main():
             print(f"Measures: {band_measures}")
             print("-"*80)
 
+            classifier_bundle = None
+            if OPTIMIZATION_OBJECTIVE_MODE == 'classifier_patient_probability':
+                classifier_bundle = load_band_bundle(
+                    os.path.join(CLASSIFIER_MODEL_DIR, f"{band_name}_classifier.joblib")
+                )
+                if not classifier_bundle.accepted_for_optimization:
+                    print(
+                        f"Skipping {band_name}: classifier failed evidence gate: "
+                        f"{classifier_bundle.acceptance_reasons}"
+                    )
+                    continue
+
             try:
                 band_connectivity_matrices, band_network_measures, band_subject_data = apply_patient_rejection_filter(
                     connectivity_matrices,
@@ -533,7 +576,7 @@ def main():
                 )
             except Exception as e:
                 print(f"\nERROR applying patient rejection filter for band {band_name}: {str(e)}")
-                return
+                raise
 
             optimizer = create_optimizer_from_config(
                 connectivity_matrices=band_connectivity_matrices,
@@ -545,7 +588,8 @@ def main():
                 channel_metadata=channel_metadata,
                 selected_method=SELECTED_METHOD,
                 optimization_measures=band_measures,
-                fixed_band_name=band_name
+                fixed_band_name=band_name,
+                classifier_bundle=classifier_bundle,
             )
 
             try:
@@ -553,6 +597,7 @@ def main():
                     OPTIMIZATION_OUTPUT_DIR,
                     f"{band_name}_subject_results"
                 )
+                band_started = time.perf_counter()
                 optimizer.optimize_all_patients(
                     verbose=True,
                     n_jobs=OPTIMIZATION_N_JOBS,
@@ -561,11 +606,15 @@ def main():
                 )
                 optimization_results = _load_subject_optimization_results(subject_result_dir)
                 optimizer.optimization_results = optimization_results
+                timing_rows.append({
+                    'stage': f'optimize_{band_name}',
+                    'seconds': time.perf_counter() - band_started,
+                })
             except Exception as e:
                 print(f"\nERROR during optimization for band {band_name}: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                return
+                raise
 
             results_by_band[band_name] = optimization_results
             optimization_directions[band_name] = optimizer.optimization_directions
@@ -688,6 +737,7 @@ def main():
                 OPTIMIZATION_OUTPUT_DIR,
                 "subject_results"
             )
+            optimization_started = time.perf_counter()
             optimizer.optimize_all_patients(
                 verbose=True,
                 n_jobs=OPTIMIZATION_N_JOBS,
@@ -696,11 +746,15 @@ def main():
             )
             optimization_results = _load_subject_optimization_results(subject_result_dir)
             optimizer.optimization_results = optimization_results
+            timing_rows.append({
+                'stage': 'optimize_all_bands',
+                'seconds': time.perf_counter() - optimization_started,
+            })
         except Exception as e:
             print(f"\nERROR during optimization: {str(e)}")
             import traceback
             traceback.print_exc()
-            return
+            raise
 
         # Save results
         print("\n" + "="*80)
@@ -763,6 +817,15 @@ def main():
             import traceback
             traceback.print_exc()
     
+    timing_rows.append({
+        'stage': 'optimization_pipeline_total',
+        'seconds': time.perf_counter() - pipeline_started,
+    })
+    timing_path = os.path.join(OPTIMIZATION_OUTPUT_DIR, 'optimization_stage_timings.csv')
+    pd.DataFrame(timing_rows).assign(
+        minutes=lambda frame: frame['seconds'] / 60.0
+    ).to_csv(timing_path, index=False)
+
     # Summary
     print("\n" + "="*80)
     print("OPTIMIZATION PIPELINE COMPLETE")
@@ -774,6 +837,7 @@ def main():
         print(f"  - Per-band results: {OPTIMIZATION_OUTPUT_DIR}/*_{OPTIMIZATION_RESULTS_FILE}")
     print(f"  - Figures: {OPTIMIZATION_FIGURES_DIR}")
     print(f"  - Report: {report_path}")
+    print(f"  - Stage timings: {timing_path}")
     if 'candidate_stats_outputs' in locals() and candidate_stats_outputs:
         print("  - Candidate-region statistics:")
         for stats_output in candidate_stats_outputs:

@@ -36,7 +36,7 @@ def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = N
     top_k = min(top_k, len(best_front))
 
     objectives = np.array([sol['objectives'] for sol in best_front])
-    if objective_mode == "distance_to_gt":
+    if objective_mode in ("distance_to_gt", "classifier_patient_probability"):
         ideal_point = np.zeros(objectives.shape[1], dtype=float)
     else:
         ideal_point = objectives.min(axis=0)
@@ -1204,7 +1204,24 @@ def plot_pareto_fronts(optimization_results: Dict,
     # Select first 3 subjects for visualization
     subjects_to_plot = list(optimization_results.keys())[:3]
     
-    if n_objectives == 3:
+    if n_objectives == 1:
+        n_plots = min(3, len(subjects_to_plot))
+        fig, axes = plt.subplots(1, n_plots, figsize=figsize, squeeze=False)
+        for subject_id, ax in zip(subjects_to_plot, axes[0]):
+            results = optimization_results[subject_id]
+            front = results.get('best_front') or []
+            objectives = np.asarray([item['objectives'] for item in front], dtype=float)
+            if objectives.size:
+                ax.scatter(np.arange(len(objectives)), objectives[:, 0], c='steelblue', s=35)
+            best = results.get('best_solution')
+            if best is not None:
+                ax.axhline(float(best['objectives'][0]), color='crimson', linestyle='--', label='Best')
+            ax.set_xlabel('Candidate on final front')
+            ax.set_ylabel(optimization_measures[0])
+            ax.set_title(str(subject_id), fontsize=11, fontweight='bold')
+            ax.grid(alpha=0.3)
+            ax.legend()
+    elif n_objectives == 3:
         # 3D Pareto front
         fig = plt.figure(figsize=figsize)
         
@@ -1275,6 +1292,134 @@ def plot_pareto_fronts(optimization_results: Dict,
     
     # plt.show()
     
+    return fig
+
+
+def plot_probability_changes(optimization_results: Dict, save_path: str = None):
+    """Plot the classifier probability objective before and after stimulation."""
+
+    rows = []
+    for key, result in optimization_results.items():
+        initial = result.get('initial_metrics')
+        final = result.get('final_metrics')
+        if initial is None or final is None or not len(initial) or not len(final):
+            continue
+        rows.append((str(key), result.get('fixed_band_name'), float(initial[0]), float(final[0])))
+    if not rows:
+        return None
+    bands = [row[1] or 'all' for row in rows]
+    initial = np.asarray([row[2] for row in rows])
+    final = np.asarray([row[3] for row in rows])
+    palette = {'delta': '#457b9d', 'alpha': '#2a9d8f', 'beta': '#e76f51', 'all': '#6c757d'}
+    colors = [palette.get(band, '#6c757d') for band in bands]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    axes[0].scatter(initial, final, c=colors, alpha=0.7, edgecolor='white', linewidth=0.4)
+    axes[0].plot([0, 1], [0, 1], 'k--', linewidth=1)
+    axes[0].set(xlim=(0, 1), ylim=(0, 1), xlabel='Initial P(Patient)', ylabel='Optimized P(Patient)')
+    axes[0].set_title('Classifier objective shift')
+    improvement = initial - final
+    for band in dict.fromkeys(bands):
+        values = improvement[np.asarray(bands) == band]
+        axes[1].hist(values, bins=15, alpha=0.55, label=band, color=palette.get(band))
+    axes[1].axvline(0, color='black', linestyle='--', linewidth=1)
+    axes[1].set(xlabel='Reduction in P(Patient)', ylabel='Optimization units')
+    axes[1].set_title('Probability reduction (positive is objective improvement)')
+    axes[1].legend()
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Classifier probability changes saved to: {save_path}")
+    return fig
+
+
+def plot_single_objective_diagnostics(optimization_results: Dict, save_path: str = None):
+    """Plot convergence and trust-boundary behavior for P(Patient) optimization."""
+
+    palette = {'delta': '#457b9d', 'alpha': '#2a9d8f', 'beta': '#e76f51'}
+    generation_values = {}
+    sampled_candidates = []
+    selected_solutions = []
+    for result in optimization_results.values():
+        band = str(result.get('fixed_band_name') or 'all')
+        for item in result.get('history') or []:
+            objectives = np.asarray(item.get('best_objectives'), dtype=float)
+            if objectives.size:
+                generation_values.setdefault(int(item['generation']), []).append(
+                    float(np.min(objectives.reshape(-1, objectives.shape[-1])[:, 0]))
+                )
+
+        feasible = [
+            solution for solution in (result.get('all_solutions') or [])
+            if solution.get('feasible', True)
+            and np.asarray(solution.get('objectives'), dtype=float).size
+            and np.asarray(solution.get('constraint_values'), dtype=float).size >= 7
+        ]
+        if feasible:
+            # Bound each subject's contribution so long NSGA histories do not
+            # dominate the plot or create an unnecessarily large figure.
+            indices = np.linspace(0, len(feasible) - 1, min(120, len(feasible)), dtype=int)
+            for index in indices:
+                solution = feasible[index]
+                constraints = np.asarray(solution['constraint_values'], dtype=float)
+                sampled_candidates.append((
+                    band,
+                    max(0.0, -float(constraints[6])),
+                    float(np.asarray(solution['objectives'], dtype=float).reshape(-1)[0]),
+                ))
+        best = result.get('best_solution')
+        if best is not None:
+            constraints = np.asarray(best.get('constraint_values'), dtype=float)
+            if constraints.size >= 7:
+                selected_solutions.append((
+                    band,
+                    max(0.0, -float(constraints[6])),
+                    float(np.asarray(best['objectives'], dtype=float).reshape(-1)[0]),
+                ))
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.2))
+    if generation_values:
+        generations = np.asarray(sorted(generation_values))
+        values = [np.asarray(generation_values[g], dtype=float) for g in generations]
+        medians = np.asarray([np.median(value) for value in values])
+        lower = np.asarray([np.quantile(value, 0.10) for value in values])
+        upper = np.asarray([np.quantile(value, 0.90) for value in values])
+        axes[0].plot(generations, medians, color='#264653', lw=2, label='Median')
+        axes[0].fill_between(
+            generations, lower, upper, color='#8ecae6', alpha=0.45,
+            label='10th-90th percentile',
+        )
+    axes[0].set_title('Best feasible objective by NSGA generation')
+    axes[0].set_xlabel('Generation')
+    axes[0].set_ylabel('Best P(Patient)')
+    axes[0].set_ylim(bottom=0)
+    axes[0].grid(alpha=0.2)
+    axes[0].legend(frameon=False)
+
+    present_bands = list(dict.fromkeys(row[0] for row in sampled_candidates))
+    for band in present_bands:
+        rows = [row for row in sampled_candidates if row[0] == band]
+        axes[1].scatter(
+            [row[1] for row in rows], [row[2] for row in rows],
+            s=8, alpha=0.10, color=palette.get(band, '#6c757d'), label=f'{band} candidates',
+        )
+        selected = [row for row in selected_solutions if row[0] == band]
+        axes[1].scatter(
+            [row[1] for row in selected], [row[2] for row in selected],
+            s=30, alpha=0.75, marker='x', linewidth=1.2,
+            color=palette.get(band, '#6c757d'), label=f'{band} selected',
+        )
+    axes[1].axvline(0, color='black', linestyle='--', linewidth=1)
+    axes[1].set_title('Objective versus patient-local trust slack')
+    axes[1].set_xlabel('Local trust-region slack (0 = boundary)')
+    axes[1].set_ylabel('P(Patient)')
+    axes[1].set_ylim(0, 1)
+    axes[1].grid(alpha=0.2)
+    axes[1].legend(frameon=False, fontsize=8, ncol=2)
+    fig.suptitle('Single-objective optimization diagnostics', fontweight='bold')
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Single-objective diagnostics saved to: {save_path}")
     return fig
 
 
@@ -1359,13 +1504,29 @@ def plot_optimization_summary(optimization_results: Dict,
         save_path=os.path.join(overview_dir, 'weighted_node_band_heatmap.png')
     )
     
-    # 4. Pareto fronts
-    print("  - Pareto fronts (sample subjects)")
-    plot_pareto_fronts(
-        optimization_results,
-        optimization_measures,
-        save_path=os.path.join(overview_dir, 'pareto_fronts_sample.png')
-    )
+    if optimization_measures == ['patient_probability']:
+        stale_pareto_path = os.path.join(overview_dir, 'pareto_fronts_sample.png')
+        if os.path.exists(stale_pareto_path):
+            os.remove(stale_pareto_path)
+        print("  - Single-objective convergence and trust diagnostics")
+        plot_single_objective_diagnostics(
+            optimization_results,
+            save_path=os.path.join(
+                overview_dir, 'single_objective_optimization_diagnostics.png'
+            )
+        )
+        print("  - Initial vs optimized classifier probability")
+        plot_probability_changes(
+            optimization_results,
+            save_path=os.path.join(overview_dir, 'classifier_probability_changes.png')
+        )
+    else:
+        print("  - Pareto fronts (sample subjects)")
+        plot_pareto_fronts(
+            optimization_results,
+            optimization_measures,
+            save_path=os.path.join(overview_dir, 'pareto_fronts_sample.png')
+        )
     
     print(f"\nAll plots saved to: {overview_dir}")
 
@@ -1463,7 +1624,9 @@ def create_optimization_report(optimization_results: Dict,
         f.write("\n")
 
         f.write("Top-K ranking:\n")
-        if objective_mode == 'distance_to_gt':
+        if objective_mode == 'classifier_patient_probability':
+            f.write("  - Direct minimization of P(Patient); zero is the ideal point\n")
+        elif objective_mode == 'distance_to_gt':
             f.write("  - Distance to GT (L2 norm of objective vector; 0 = perfect match)\n")
         else:
             f.write("  - Distance to ideal point (L2 norm of objectives)\n")
@@ -1665,7 +1828,7 @@ def create_optimization_report(optimization_results: Dict,
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
                         gt_distance = None
-                        if objective_mode == 'distance_to_gt':
+                        if objective_mode in ('distance_to_gt', 'classifier_patient_probability'):
                             obj_vals = ranked_sol.get('objectives')
                             if obj_vals is not None:
                                 try:

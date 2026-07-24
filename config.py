@@ -45,7 +45,7 @@ DATASET_ROOT = os.path.normpath(DATASET_CONFIG["dataset_root"])
 HC_DATA_PATH = os.path.join(DATASET_ROOT, DATASET_CONFIG["healthy_subdirectory"])
 PATIENT_DATA_PATH = os.path.join(DATASET_ROOT, DATASET_CONFIG["patient_subdirectory"])
 OUTPUT_DIR = DATASET_CONFIG["output_directory"]
-STEP_TO_START = 1
+STEP_TO_START = int(os.environ.get("EEG_STEP_TO_START", "1"))
 
 # Channel display metadata. Exact labels remain authoritative for indexing.
 CHANNEL_LABEL_STYLE = "exact"
@@ -92,7 +92,7 @@ FREQUENCY_BANDS = {
 # failure handling without overwriting legacy result trees.
 CONNECTIVITY_SETTINGS = DATASET_CONFIG.get("connectivity", {})
 CONNECTIVITY_METHODS = list(CONNECTIVITY_SETTINGS.get("methods", ["gc"]))
-CONNECTIVITY_N_JOBS = None  # None: use all available CPU cores, 1: disable multiprocessing
+CONNECTIVITY_N_JOBS = CONNECTIVITY_SETTINGS.get("n_jobs")
 
 # Selected method for network analysis (change after visualization 2)
 SELECTED_METHOD = CONNECTIVITY_SETTINGS.get("selected_method", "gc")
@@ -157,6 +157,41 @@ CLASSIFICATION_MODE = 'all_metrics'  # 'triplet' or 'all_metrics'
 CLASSIFICATION_MODEL = 'linear_svm'  # 'linear_svm' or 'logistic' (used in all_metrics mode)
 CLASSIFICATION_C = 0.1  # Regularization strength for linear models
 CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N = 10  # Top features to show in summaries/plots
+
+# Connectivity-edge classification is opt-in per dataset profile.  Legacy
+# profiles continue to run the historical graph-measure classifier.
+CLASSIFICATION_SETTINGS = DATASET_CONFIG.get("classification", {})
+CLASSIFICATION_SOURCE = CLASSIFICATION_SETTINGS.get("source", "network_measures")
+CLASSIFICATION_MODELS = list(CLASSIFICATION_SETTINGS.get(
+    "models",
+    ["logistic_l2", "linear_svm_sigmoid", "rbf_svm", "extra_trees"],
+))
+CLASSIFICATION_SCREEN_REPEATS = int(CLASSIFICATION_SETTINGS.get("screen_repeats", 1))
+CLASSIFICATION_VALIDATION_REPEATS = int(
+    CLASSIFICATION_SETTINGS.get("validation_repeats", 5)
+)
+CLASSIFICATION_N_JOBS = int(CLASSIFICATION_SETTINGS.get("n_jobs", 1))
+CLASSIFICATION_MINIMUM_ROC_AUC = float(
+    CLASSIFICATION_SETTINGS.get("minimum_roc_auc", 0.75)
+)
+CLASSIFICATION_MINIMUM_BALANCED_ACCURACY = float(
+    CLASSIFICATION_SETTINGS.get("minimum_balanced_accuracy", 0.70)
+)
+CLASSIFICATION_MAXIMUM_BRIER = float(
+    CLASSIFICATION_SETTINGS.get("maximum_brier", 0.20)
+)
+if CLASSIFICATION_SOURCE not in {"network_measures", "connectivity_edges"}:
+    raise ValueError(f"Unknown classification source: {CLASSIFICATION_SOURCE}")
+for threshold_name, threshold_value in {
+    "minimum_roc_auc": CLASSIFICATION_MINIMUM_ROC_AUC,
+    "minimum_balanced_accuracy": CLASSIFICATION_MINIMUM_BALANCED_ACCURACY,
+    "maximum_brier": CLASSIFICATION_MAXIMUM_BRIER,
+}.items():
+    if not 0.0 <= threshold_value <= 1.0:
+        raise ValueError(
+            f"classification.{threshold_name} must be between 0 and 1; "
+            f"got {threshold_value}"
+        )
 
 # ============================================================================
 # VISUALIZATION PARAMETERS

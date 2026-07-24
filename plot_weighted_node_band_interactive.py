@@ -108,7 +108,7 @@ def _rank_best_front(
     top_k = max(1, min(top_k, len(best_front)))
 
     objectives = np.array([sol["objectives"] for sol in best_front])
-    if objective_mode == "distance_to_gt":
+    if objective_mode in ("distance_to_gt", "classifier_patient_probability"):
         ideal_point = np.zeros(objectives.shape[1], dtype=float)
     else:
         ideal_point = objectives.min(axis=0)

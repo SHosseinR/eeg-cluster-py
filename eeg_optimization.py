@@ -2,6 +2,7 @@
 Complete EEG optimization pipeline using NSGA-II
 """
 import os
+import csv
 import numpy as np
 from typing import Dict, List, Tuple, Callable, Optional
 import copy
@@ -15,6 +16,14 @@ from optimization_config import (
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
+from classification_score.band_connectivity_classifier import (
+    BandConnectivityClassifier,
+    matrix_change_rms,
+    matrix_manifold_rms,
+    matrix_ood_rms,
+    predict_patient_probability,
+    vectorize_band_matrix,
+)
 
 
 _WORKER_OPTIMIZER = None
@@ -71,6 +80,7 @@ class EEGOptimizer:
                  fixed_band_name: Optional[str] = None,
                  optimization_mode: str = None,
                  objective_mode: str = None,
+                 classifier_bundle: Optional[BandConnectivityClassifier] = None,
                  nsga_config: Dict = None,
                  simulation_config: Dict = None,
                  plasticity_config: Dict = None):
@@ -123,8 +133,9 @@ class EEGOptimizer:
             'channel_display_names': list(self.channel_display_names),
         }
         self.selected_method = selected_method
-        self.optimization_measures = optimization_measures
-        if len(self.optimization_measures) == 0:
+        self.classifier_bundle = classifier_bundle
+        self.optimization_measures = list(optimization_measures or [])
+        if not self.optimization_measures and classifier_bundle is None:
             raise ValueError("optimization_measures must contain at least one measure.")
 
         self.optimization_mode = (optimization_mode or OPTIMIZATION_MODE).strip().lower()
@@ -135,11 +146,27 @@ class EEGOptimizer:
             )
 
         self.objective_mode = (objective_mode or OPTIMIZATION_OBJECTIVE_MODE).strip().lower()
-        if self.objective_mode not in ("directional", "distance_to_gt"):
+        if self.objective_mode not in (
+            "directional", "distance_to_gt", "classifier_patient_probability"
+        ):
             raise ValueError(
-                "objective_mode must be 'directional' or 'distance_to_gt'. "
+                "objective_mode must be 'directional', 'distance_to_gt', or "
+                "'classifier_patient_probability'. "
                 f"Got: {self.objective_mode!r}"
             )
+        if self.objective_mode == "classifier_patient_probability":
+            if self.classifier_bundle is None:
+                raise ValueError("Classifier-probability mode requires a fitted band classifier")
+            if not self.classifier_bundle.accepted_for_optimization:
+                raise ValueError(
+                    f"The {self.classifier_bundle.band} classifier did not pass the "
+                    "optimization evidence gate"
+                )
+            if self.selected_method != self.classifier_bundle.method:
+                raise ValueError("Connectivity method does not match the fitted classifier")
+            if list(self.channel_names) != self.classifier_bundle.channel_names:
+                raise ValueError("Optimizer channel order does not match the fitted classifier")
+            self.optimization_measures = ["patient_probability"]
         
         # Configuration
         self.nsga_config = nsga_config or NSGA_CONFIG
@@ -171,6 +198,11 @@ class EEGOptimizer:
             self.n_bands = 1
         else:
             self.n_bands = len(self.band_names)
+        if self.objective_mode == "classifier_patient_probability":
+            if self.fixed_band_name is None:
+                raise ValueError("Classifier-probability optimization must run separately per band")
+            if self.fixed_band_name != self.classifier_bundle.band:
+                raise ValueError("Fixed optimization band does not match classifier band")
         
         # Determine optimization directions (minimize or maximize)
         self.optimization_directions = self._determine_optimization_directions()
@@ -192,6 +224,8 @@ class EEGOptimizer:
         baselines : dict
             Mapping from measure name to baseline scalar
         """
+        if self.objective_mode == "classifier_patient_probability":
+            return {"patient_probability": 0.0}
         baselines = {}
         eps = 1e-10
 
@@ -231,6 +265,8 @@ class EEGOptimizer:
         directions : dict
             Mapping from measure name to 'minimize' or 'maximize'
         """
+        if self.objective_mode == "classifier_patient_probability":
+            return {"patient_probability": "minimize"}
         directions = {}
         
         bands = [self.fixed_band_name] if self.fixed_band_name is not None else self.band_names
@@ -419,20 +455,17 @@ class EEGOptimizer:
             stimulation_amplitude=stimulation_amplitude,
             dt=self.simulation_config['dt'],
             stability_constant=self.simulation_config['stability_constant'],
-            leak=stimulation_leak
+            leak=stimulation_leak,
+            return_trajectory=False,
         )
 
         raw_ratios = np.asarray(sim_results['raw_activation_ratios'], dtype=float)
         ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
-        constraint_values = np.array([
+        constraint_values = [
             float(ratio_lower) - float(np.min(raw_ratios)),
             float(np.max(raw_ratios)) - float(ratio_upper),
-        ], dtype=float)
-        constraint_violation = float(np.sum(np.maximum(constraint_values, 0.0)))
+        ]
         feasibility_details = {
-            'constraint_values': constraint_values,
-            'constraint_violation': constraint_violation,
-            'feasible': bool(constraint_violation <= 1e-10),
             'raw_activation_ratio_min': float(np.min(raw_ratios)),
             'raw_activation_ratio_max': float(np.max(raw_ratios)),
             'stimulation_polarity': (
@@ -446,23 +479,78 @@ class EEGOptimizer:
             updated_matrix = compute_plasticity_effect(
                 adjacency_matrix=original_matrix,
                 activation_ratios=sim_results['activation_ratios'],
-                normalize=True,
+                # The classifier was fitted to natural coherence values.  A
+                # candidate-wise min-max transform would change its feature
+                # space and make its probability meaningless.
+                normalize=self.objective_mode != "classifier_patient_probability",
                 scaling=self.plasticity_config['plasticity_scaling']
             )
         else:
             updated_matrix = original_matrix
 
-        measure_values = []
-        for measure_name in self.optimization_measures:
-            measure_func = measure_functions[measure_name]
-            measure_value = measure_func(updated_matrix)
-            measure_values.append(float(measure_value))
+        if self.objective_mode == "classifier_patient_probability":
+            edges = vectorize_band_matrix(updated_matrix)[0]
+            ood_rms = matrix_ood_rms(self.classifier_bundle, updated_matrix)
+            manifold_rms = matrix_manifold_rms(self.classifier_bundle, updated_matrix)
+            local_change_rms = matrix_change_rms(
+                self.classifier_bundle, original_matrix, updated_matrix
+            )
+            patient_probability = predict_patient_probability(
+                self.classifier_bundle,
+                updated_matrix,
+                channel_names=self.channel_names,
+            )
+            constraint_values.extend([
+                -float(np.min(edges)),
+                float(np.max(edges)) - 1.0,
+                ood_rms - float(self.classifier_bundle.ood_rms_threshold),
+                manifold_rms - float(self.classifier_bundle.manifold_rms_threshold),
+                local_change_rms - float(self.classifier_bundle.local_change_rms_threshold),
+            ])
+            measure_values = [patient_probability]
+            objectives = np.array([patient_probability], dtype=float)
+            feasibility_details.update({
+                'patient_probability': patient_probability,
+                'healthy_probability': 1.0 - patient_probability,
+                'classifier_ood_rms': ood_rms,
+                'classifier_ood_threshold': float(self.classifier_bundle.ood_rms_threshold),
+                'classifier_manifold_rms': manifold_rms,
+                'classifier_manifold_threshold': float(self.classifier_bundle.manifold_rms_threshold),
+                'classifier_local_change_rms': local_change_rms,
+                'classifier_local_change_threshold': float(self.classifier_bundle.local_change_rms_threshold),
+                'updated_connectivity_min': float(np.min(edges)),
+                'updated_connectivity_max': float(np.max(edges)),
+                # The details dictionary is discarded during candidate
+                # evaluation. It is persisted only when the selected best
+                # solution is re-evaluated below, enabling fixed-projection
+                # before/after visualizations without rerunning simulation.
+                'updated_connectivity_matrix': updated_matrix,
+            })
+        else:
+            measure_values = []
+            for measure_name in self.optimization_measures:
+                measure_func = measure_functions[measure_name]
+                measure_value = measure_func(updated_matrix)
+                measure_values.append(float(measure_value))
+            objectives = self._compute_objectives_from_measures(measure_values)
 
-        objectives = self._compute_objectives_from_measures(measure_values)
+        constraint_values = np.asarray(constraint_values, dtype=float)
+        constraint_violation = float(np.sum(np.maximum(constraint_values, 0.0)))
+        feasibility_details.update({
+            'constraint_values': constraint_values,
+            'constraint_violation': constraint_violation,
+            'feasible': bool(constraint_violation <= 1e-10),
+        })
         return objectives, np.array(measure_values, dtype=float), feasibility_details
 
     def _extract_initial_metrics(self, subject_id: str, band_name: str) -> Optional[np.ndarray]:
         """Extract baseline metrics from precomputed network measures."""
+        if self.objective_mode == "classifier_patient_probability":
+            matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
+            probability = predict_patient_probability(
+                self.classifier_bundle, matrix, channel_names=self.channel_names
+            )
+            return np.array([probability], dtype=float)
         try:
             band_data = self.network_measures['Patient'][subject_id][self.selected_method][band_name]
         except KeyError:
@@ -524,7 +612,7 @@ class EEGOptimizer:
             return best_front[0]
 
         objectives = np.array([sol['objectives'] for sol in best_front], dtype=float)
-        if self.objective_mode == "distance_to_gt":
+        if self.objective_mode in ("distance_to_gt", "classifier_patient_probability"):
             ideal_point = np.zeros(objectives.shape[1], dtype=float)
         else:
             ideal_point = objectives.min(axis=0)
@@ -607,7 +695,7 @@ class EEGOptimizer:
         top_k = min(top_k, len(best_front))
 
         objectives = np.array([sol['objectives'] for sol in best_front])
-        if self.objective_mode == "distance_to_gt":
+        if self.objective_mode in ("distance_to_gt", "classifier_patient_probability"):
             ideal_point = np.zeros(objectives.shape[1], dtype=float)
         else:
             ideal_point = objectives.min(axis=0)
@@ -625,12 +713,19 @@ class EEGOptimizer:
                 'stimulation_amplitude': sol.get('stimulation_amplitude'),
                 'leak': sol.get('leak'),
                 'objectives': sol['objectives'],
+                'measure_values': sol.get('measure_values'),
                 'constraint_values': sol.get('constraint_values'),
                 'constraint_violation': sol.get('constraint_violation', 0.0),
                 'feasible': sol.get('feasible', True),
                 'raw_activation_ratio_min': sol.get('raw_activation_ratio_min'),
                 'raw_activation_ratio_max': sol.get('raw_activation_ratio_max'),
                 'stimulation_polarity': sol.get('stimulation_polarity'),
+                'patient_probability': sol.get('patient_probability'),
+                'healthy_probability': sol.get('healthy_probability'),
+                'classifier_ood_rms': sol.get('classifier_ood_rms'),
+                'classifier_ood_threshold': sol.get('classifier_ood_threshold'),
+                'classifier_manifold_rms': sol.get('classifier_manifold_rms'),
+                'classifier_local_change_rms': sol.get('classifier_local_change_rms'),
                 'distance': float(distances[idx]),
                 'rank': rank,
                 'strength': 1.0 / float(rank)
@@ -698,7 +793,7 @@ class EEGOptimizer:
                 band_names=self.band_names,
                 evaluate_func=evaluate_func,
                 n_objectives=len(self.optimization_measures),
-                n_constraints=2,
+                n_constraints=(7 if self.objective_mode == "classifier_patient_probability" else 2),
                 activation_ratio_bounds=ACTIVATION_RATIO_FEASIBILITY_BOUNDS,
                 duration_bounds=STIMULATION_DURATION_BOUNDS,
                 amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
@@ -720,8 +815,18 @@ class EEGOptimizer:
             all_solutions = getattr(optimizer, "all_solutions", None) or best_front
             
             # Get single best solution (closest to GT or ideal point)
-            ranking_pool = best_front if GRID_USE_PARETO_ONLY else all_solutions
-            best_solution = self._select_best_solution(ranking_pool)
+            best_pool = best_front if GRID_USE_PARETO_ONLY else all_solutions
+            best_solution = self._select_best_solution(best_pool)
+            if self.objective_mode == "classifier_patient_probability":
+                # A one-objective Pareto front normally contains only its
+                # minimum. Use the feasible final population for meaningful
+                # top-K alternatives without counting every historical repeat.
+                ranking_pool = (
+                    getattr(optimizer, "final_population_solutions", None)
+                    or best_front
+                )
+            else:
+                ranking_pool = best_pool
 
         if best_solution is None:
             raise RuntimeError(
@@ -740,7 +845,22 @@ class EEGOptimizer:
             band_name = best_solution.get('band_name') or self.band_names[band_idx]
             initial_metrics = self._extract_initial_metrics(subject_id, band_name)
 
-            if 'measure_values' in best_solution:
+            if self.objective_mode == "classifier_patient_probability":
+                # Re-evaluate exactly one selected solution so its complete
+                # connectivity matrix and trust diagnostics are saved. NSGA's
+                # candidate records intentionally remain lightweight.
+                objectives, measure_values, details = evaluate_with_details(
+                    node=int(best_solution['node']),
+                    band_idx=band_idx,
+                    stimulation_duration=best_solution.get('stimulation_duration'),
+                    stimulation_amplitude=best_solution.get('stimulation_amplitude'),
+                    stimulation_leak=best_solution.get('leak')
+                )
+                best_solution['objectives'] = objectives
+                best_solution['measure_values'] = measure_values.tolist()
+                best_solution.update(details)
+                final_metrics = measure_values
+            elif 'measure_values' in best_solution:
                 final_metrics = np.array(best_solution['measure_values'], dtype=float)
             else:
                 objectives, measure_values, details = evaluate_with_details(
@@ -778,6 +898,11 @@ class EEGOptimizer:
             'stimulation_amplitude_bounds': tuple(STIMULATION_AMPLITUDE_BOUNDS),
             'activation_ratio_feasibility_bounds': tuple(ACTIVATION_RATIO_FEASIBILITY_BOUNDS),
             'healthy_measure_baselines': dict(self.healthy_measure_baselines),
+            'classifier_band': self.classifier_bundle.band if self.classifier_bundle else None,
+            'classifier_model': self.classifier_bundle.model_name if self.classifier_bundle else None,
+            'classifier_cv_metrics': dict(self.classifier_bundle.cv_metrics) if self.classifier_bundle else None,
+            'classifier_best_params': dict(self.classifier_bundle.best_params) if self.classifier_bundle else None,
+            'classifier_fit_diagnostics': dict(self.classifier_bundle.fit_diagnostics) if self.classifier_bundle else None,
             'fixed_band_name': self.fixed_band_name,
             'fixed_band_index': self.fixed_band_index,
             'initial_metrics': initial_metrics.tolist() if initial_metrics is not None else None,
@@ -844,6 +969,7 @@ class EEGOptimizer:
         max_workers = min(max_workers, total_subjects) if total_subjects > 0 else 1
 
         all_results = {}
+        optimization_failures = {}
         if max_workers <= 1 or total_subjects <= 1:
             print(f"Running optimization sequentially (workers={max_workers})")
             for i, subject_id in enumerate(patient_subjects):
@@ -858,6 +984,7 @@ class EEGOptimizer:
                         all_results[subject_id] = results
                 except Exception as e:
                     print(f"ERROR optimizing {subject_id}: {str(e)}")
+                    optimization_failures[str(subject_id)] = str(e)
                     continue
         else:
             print(f"Running optimization in parallel with {max_workers} processes...")
@@ -883,13 +1010,24 @@ class EEGOptimizer:
                         print(f"[{i}/{total_subjects}] Completed {subject_id}")
                     except Exception as e:
                         print(f"[{i}/{total_subjects}] ERROR optimizing {subject_id}: {str(e)}")
+                        optimization_failures[str(subject_id)] = str(e)
                         continue
         
         self.optimization_results = all_results
+        self.optimization_failures = optimization_failures
+        if result_dir:
+            failure_path = os.path.join(result_dir, 'optimization_failures.csv')
+            with open(failure_path, 'w', newline='', encoding='utf-8') as handle:
+                writer = csv.DictWriter(handle, fieldnames=['subject_id', 'error'])
+                writer.writeheader()
+                for failed_subject, error in sorted(optimization_failures.items()):
+                    writer.writerow({'subject_id': failed_subject, 'error': error})
+            print(f"Optimization failure manifest: {failure_path}")
         
         print(f"\n{'='*80}")
         print(f"OPTIMIZATION COMPLETE")
         print(f"Successfully optimized: {len(all_results)}/{len(patient_subjects)} subjects")
+        print(f"Subjects without a feasible saved solution: {len(optimization_failures)}")
         print(f"{'='*80}")
         
         return all_results
@@ -916,7 +1054,8 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
                                 optimization_measures: Optional[List[str]] = None,
                                 channel_display_names: Optional[List[str]] = None,
                                 channel_metadata: Optional[Dict] = None,
-                                fixed_band_name: Optional[str] = None) -> EEGOptimizer:
+                                fixed_band_name: Optional[str] = None,
+                                classifier_bundle: Optional[BandConnectivityClassifier] = None) -> EEGOptimizer:
     """
     Create EEGOptimizer instance from configuration files.
     
@@ -957,6 +1096,7 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         fixed_band_name=fixed_band_name,
         optimization_mode=OPTIMIZATION_MODE,
         objective_mode=OPTIMIZATION_OBJECTIVE_MODE,
+        classifier_bundle=classifier_bundle,
         nsga_config=NSGA_CONFIG,
         simulation_config=SIMULATION_CONFIG,
         plasticity_config=PLASTICITY_CONFIG

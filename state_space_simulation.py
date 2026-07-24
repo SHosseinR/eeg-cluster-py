@@ -171,6 +171,34 @@ def simulate_eeg_dynamics(A, x0, xbar, B, U, dt=0.001, leak=0.0):
     return x, x_final
 
 
+def simulate_eeg_final_state(A, xbar, stimulation_node, amplitude, n_timesteps,
+                             dt=0.001, leak=0.0):
+    """Return the legacy Euler final sample without allocating a trajectory.
+
+    The input is constant in this project's stimulation model.  Raising an
+    augmented affine transition matrix to ``n_timesteps - 1`` reproduces the
+    state stored in the last column by :func:`simulate_eeg_dynamics`.
+    """
+
+    xbar = np.asarray(xbar, dtype=float).reshape(-1)
+    n_nodes = A.shape[0]
+    if n_timesteps <= 1:
+        return xbar.copy()
+    transition = np.eye(n_nodes) + float(dt) * (
+        np.asarray(A, dtype=float) - float(leak) * np.eye(n_nodes)
+    )
+    input_step = np.zeros(n_nodes, dtype=float)
+    input_step[int(stimulation_node)] = float(dt) * float(amplitude)
+    augmented = np.zeros((n_nodes + 1, n_nodes + 1), dtype=float)
+    augmented[:n_nodes, :n_nodes] = transition
+    augmented[:n_nodes, -1] = input_step
+    augmented[-1, -1] = 1.0
+    initial = np.zeros(n_nodes + 1, dtype=float)
+    initial[-1] = 1.0
+    deviation = np.linalg.matrix_power(augmented, int(n_timesteps) - 1) @ initial
+    return xbar + deviation[:n_nodes]
+
+
 def compute_activation_changes(x_baseline, x_final, return_raw=False):
     """
     Compute relative change in node activations after stimulation.
@@ -207,7 +235,8 @@ def compute_activation_changes(x_baseline, x_final, return_raw=False):
 
 def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
                        stimulation_duration=1.0, stimulation_amplitude=1.0,
-                       dt=0.001, stability_constant=0.01, leak=0.0):
+                       dt=0.001, stability_constant=0.01, leak=0.0,
+                       return_trajectory=True):
     """
     Complete pipeline for simulating EEG dynamics with stimulation.
     
@@ -256,8 +285,22 @@ def run_full_simulation(adjacency_matrix, baseline_activation, stimulation_node,
     x0 = baseline_activation.copy()
     xbar = baseline_activation.copy()
     
-    # Run simulation
-    trajectory, x_final = simulate_eeg_dynamics(A_norm, x0, xbar, B, U, dt, leak)
+    # Run simulation. Optimization evaluates thousands of constant-input
+    # candidates and only needs the final sample, so avoid allocating and
+    # stepping through the full trajectory in that path.
+    if return_trajectory:
+        trajectory, x_final = simulate_eeg_dynamics(A_norm, x0, xbar, B, U, dt, leak)
+    else:
+        trajectory = None
+        x_final = simulate_eeg_final_state(
+            A_norm,
+            xbar,
+            stimulation_node,
+            stimulation_amplitude,
+            U.shape[1],
+            dt=dt,
+            leak=leak,
+        )
     
     # Compute activation changes
     activation_ratios, raw_activation_ratios = compute_activation_changes(

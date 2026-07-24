@@ -1,0 +1,42 @@
+# First-paper eyes-closed coherence classifier experiment: signed stimulation,
+# no patient rejection, and logistic-only band classifiers.
+dataset_root = "D:/university/projects/graph-opt/paper-data/EC/set2"
+healthy_subdirectory = "HC"
+patient_subdirectory = "MDD"
+
+output_directory = "./results-signed-no-rejection-logistic/results-first-paper-coherence"
+optimization_output_subdirectory = "optimization"
+optimization_debug_subject = "MDD S2  EC"
+
+[connectivity]
+methods = ["coh"]
+selected_method = "coh"
+normalization = "none"
+error_policy = "raise"
+spectral_input = "band_filtered"
+n_jobs = 4
+
+[classification]
+source = "connectivity_edges"
+models = ["logistic_l2"]
+screen_repeats = 1
+validation_repeats = 5
+n_jobs = 4
+minimum_roc_auc = 0.70
+minimum_balanced_accuracy = 0.65
+maximum_brier = 0.25
+
+[optimization]
+objective_mode = "classifier_patient_probability"
+classifier_model_directory = "data/connectivity_classifiers/models"
+patient_ranking_template = "connectivity_classifiers/classifier_patient_ranking_{band}.csv"
+patient_rejection_percent = 0
+n_jobs = 4
+stimulation_amplitude_bounds = [-3.0, 3.0]
+
+# Required by the shared configuration schema, but not optimization objectives
+# in classifier_patient_probability mode.
+[optimization_measures_by_band]
+delta = ["cv_weight", "min_weight", "small_worldness"]
+alpha = ["min_weight", "transitivity", "clustering_coefficient"]
+beta = ["cv_weight", "diameter", "modularity"]

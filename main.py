@@ -3,6 +3,8 @@ Main pipeline for EEG connectivity analysis
 """
 
 import os
+import shutil
+import time
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -15,7 +17,11 @@ from config import (
     NETWORK_MEASURES, STEP_TO_START, CONNECTIVITY_N_JOBS,
     SPECTRAL_CONNECTIVITY_INPUT,
     CLASSIFICATION_MODE, CLASSIFICATION_MODEL, CLASSIFICATION_C,
-    CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N
+    CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N,
+    CLASSIFICATION_SOURCE, CLASSIFICATION_MODELS,
+    CLASSIFICATION_SCREEN_REPEATS, CLASSIFICATION_VALIDATION_REPEATS,
+    CLASSIFICATION_N_JOBS, CLASSIFICATION_MINIMUM_ROC_AUC,
+    CLASSIFICATION_MINIMUM_BALANCED_ACCURACY, CLASSIFICATION_MAXIMUM_BRIER
 )
 from data_loader import load_group_data, verify_data_consistency
 from channel_metadata import save_channel_metadata, load_channel_metadata
@@ -36,6 +42,9 @@ from classification import (
     find_best_feature_triplets, get_best_triplet_details,
     create_classification_report, evaluate_all_features,
     create_full_feature_report, analyze_feature_importance
+)
+from classification_score.band_connectivity_classifier import (
+    run_band_classifier_pipeline,
 )
 
 
@@ -120,6 +129,13 @@ def create_output_directories():
 
 def main():
     """Main analysis pipeline."""
+    pipeline_started = time.perf_counter()
+    timing_rows = []
+
+    def finish_timing(stage, started):
+        elapsed = time.perf_counter() - started
+        timing_rows.append({'stage': stage, 'seconds': elapsed})
+        print(f"\nTIMING {stage}: {elapsed:.2f} seconds ({elapsed / 60.0:.2f} minutes)")
     
     print("\n" + "="*80)
     print("EEG CONNECTIVITY ANALYSIS PIPELINE")
@@ -136,6 +152,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 1:
+        stage_started = time.perf_counter()
         healthy_data = load_group_data(HC_DATA_PATH, group_name="Healthy")
         patient_data = load_group_data(PATIENT_DATA_PATH, group_name="Patient")
         
@@ -153,6 +170,7 @@ def main():
             channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
             save_channel_metadata(channel_metadata, channel_metadata_path)
             print(f"\nSaved channel metadata: {channel_metadata_path}")
+        finish_timing('step1_load_data', stage_started)
         
     # ========================================================================
     # STEP 2: SIGNAL PROCESSING (EPOCHING & FILTERING)
@@ -162,6 +180,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 2:
+        stage_started = time.perf_counter()
         all_subjects_filtered = {}
         
         for group_data, group_name in [(healthy_data, "Healthy"), (patient_data, "Patient")]:
@@ -198,6 +217,7 @@ def main():
         del healthy_data, patient_data
         if 'all_data' in locals():
             del all_data
+        finish_timing('step2_epoch_and_filter', stage_started)
         
     # ========================================================================
     # STEP 3: CONNECTIVITY ANALYSIS
@@ -207,6 +227,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 3:
+        stage_started = time.perf_counter()
         if 'all_subjects_filtered' not in locals():
             index_path = _filtered_epochs_index_path()
             if not os.path.exists(index_path):
@@ -278,6 +299,7 @@ def main():
                 allow_pickle=True
             )
             print("Saved analysis metadata")
+        finish_timing('step3_connectivity', stage_started)
         
     # ========================================================================
     # STEP 4: VISUALIZATIONS 1-3
@@ -287,6 +309,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 4:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 4:
             connectivity_matrices = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
@@ -329,6 +352,7 @@ def main():
             index=False
         )
         print("\nSaved connectivity edge-prevalence summary to CSV")
+        finish_timing('step4_connectivity_figures_and_statistics', stage_started)
         
     # ========================================================================
     # STEP 5: NETWORK MEASURES
@@ -339,6 +363,7 @@ def main():
     print(f"Using connectivity method: {SELECTED_METHOD.upper()}")
 
     if STEP_TO_START <= 5:
+        stage_started = time.perf_counter()
         # Filter connectivity matrices to selected method only
         selected_connectivity = {}
         for group_name in connectivity_matrices.keys():
@@ -359,6 +384,7 @@ def main():
         np.save(os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
                 network_measures, allow_pickle=True)
         print(f"\nSaved network measures")
+        finish_timing('step5_network_measures', stage_started)
 
     # ========================================================================
     # STEP 6: STATISTICAL ANALYSIS
@@ -368,6 +394,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 6:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 6:
             network_measures = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
@@ -394,6 +421,7 @@ def main():
             pvalue_df,
             output_path=os.path.join(OUTPUT_DIR, 'figures', 'network_statistics', 'viz4_network_pvalues.png')
         )
+        finish_timing('step6_statistical_analysis', stage_started)
         
     # ========================================================================
     # STEP 7: FEATURE EXTRACTION & CLASSIFICATION
@@ -403,6 +431,7 @@ def main():
     print("="*80)
 
     if STEP_TO_START <= 7:
+        stage_started = time.perf_counter()
         if STEP_TO_START == 7:
             network_measures = np.load(
                 os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy'),
@@ -419,7 +448,71 @@ def main():
         classification_reports_by_band = {}
         summary_rows = []
 
-        if CLASSIFICATION_MODE == 'triplet':
+        if CLASSIFICATION_SOURCE == 'connectivity_edges':
+            if 'connectivity_matrices' not in locals():
+                connectivity_matrices = np.load(
+                    os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy'),
+                    allow_pickle=True
+                ).item()
+            connectivity_path = os.path.join(
+                OUTPUT_DIR, 'data', 'connectivity_matrices.npy'
+            )
+            channel_metadata_path = os.path.join(
+                OUTPUT_DIR, 'data', 'channel_metadata.json'
+            )
+            classifier_output_dir = os.path.join(
+                OUTPUT_DIR, 'data', 'connectivity_classifiers'
+            )
+            print(
+                "Running independent natural-edge connectivity classifiers "
+                f"for {', '.join(band_names)}"
+            )
+            connectivity_summary = run_band_classifier_pipeline(
+                connectivity_path,
+                channel_metadata_path,
+                classifier_output_dir,
+                method=SELECTED_METHOD,
+                bands=band_names,
+                models=CLASSIFICATION_MODELS,
+                screen_repeats=CLASSIFICATION_SCREEN_REPEATS,
+                validation_repeats=CLASSIFICATION_VALIDATION_REPEATS,
+                n_jobs=CLASSIFICATION_N_JOBS,
+                minimum_roc_auc=CLASSIFICATION_MINIMUM_ROC_AUC,
+                minimum_balanced_accuracy=CLASSIFICATION_MINIMUM_BALANCED_ACCURACY,
+                maximum_brier=CLASSIFICATION_MAXIMUM_BRIER,
+            )
+            classification_summary_df = connectivity_summary.rename(
+                columns={
+                    'accuracy': 'best_accuracy',
+                    'accuracy_repeat_sd': 'best_accuracy_std',
+                }
+            ).copy()
+            classification_summary_df['best_features'] = (
+                classification_summary_df['model'].astype(str)
+                + ' on one-band natural coherence edges'
+            )
+            classification_summary_df = classification_summary_df.sort_values(
+                by='best_accuracy', ascending=False
+            )
+            classification_reports_by_band = {
+                row['band']: row.to_dict()
+                for _, row in connectivity_summary.iterrows()
+            }
+            diagnostics_path = os.path.join(
+                classifier_output_dir, 'band_classifier_diagnostics.png'
+            )
+            if os.path.exists(diagnostics_path):
+                shutil.copy2(
+                    diagnostics_path,
+                    os.path.join(
+                        OUTPUT_DIR,
+                        'figures',
+                        'classification',
+                        'viz5_band_connectivity_classifier_diagnostics.png',
+                    ),
+                )
+
+        elif CLASSIFICATION_MODE == 'triplet':
             top_triplets_by_band = {}
             best_triplets_by_band = {}
 
@@ -574,6 +667,7 @@ def main():
                 f"Unsupported CLASSIFICATION_MODE '{CLASSIFICATION_MODE}'. "
                 "Use 'triplet' or 'all_metrics'."
             )
+        finish_timing('step7_classification', stage_started)
     
     # ========================================================================
     # STEP 8: FINAL SUMMARY
@@ -581,6 +675,7 @@ def main():
     print("\n" + "="*80)
     print("STEP 8: CREATING SUMMARY REPORT")
     print("="*80)
+    stage_started = time.perf_counter()
     
     # Compile summary information
     n_healthy = len(network_measures.get('Healthy', {})) if 'network_measures' in locals() else 0
@@ -637,6 +732,16 @@ def main():
         summary_info,
         output_path=os.path.join(OUTPUT_DIR, 'reports', 'summary_report.png')
     )
+    finish_timing('step8_summary_report', stage_started)
+    timing_rows.append({
+        'stage': 'analysis_pipeline_total',
+        'seconds': time.perf_counter() - pipeline_started,
+    })
+    timing_path = os.path.join(OUTPUT_DIR, 'reports', 'analysis_stage_timings.csv')
+    pd.DataFrame(timing_rows).assign(
+        minutes=lambda frame: frame['seconds'] / 60.0
+    ).to_csv(timing_path, index=False)
+    print(f"Saved analysis stage timings: {timing_path}")
     
     # ========================================================================
     # FINAL OUTPUT
@@ -651,21 +756,30 @@ def main():
     print("    - viz2_pvalue_matrices.png")
     print("    - viz3_pvalue_per_band.png")
     print("    - viz4_network_pvalues.png")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - viz5_band_connectivity_classifier_diagnostics.png")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - viz5_top_triplets_per_band.png (and additional parts if needed)")
-    print("    - viz6_feature_importance_per_band.png (and additional parts if needed)")
+    if CLASSIFICATION_SOURCE != 'connectivity_edges':
+        print("    - viz6_feature_importance_per_band.png (and additional parts if needed)")
     print("  Data:")
     print("    - connectivity_matrices.npy")
     print("    - network_measures.npy")
     print("    - network_measures_pvalues.csv")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - connectivity_classifiers/classification_summary_by_band_connectivity.csv")
+        print("    - connectivity_classifiers/models/<band>_classifier.joblib")
+        print("    - connectivity_classifiers/classifier_patient_ranking_<band>.csv")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - top_feature_triplets_<band>.csv")
         print("    - classification_summary_by_band.csv")
     else:
         print("    - feature_importance_all_metrics_<band>.csv")
         print("    - classification_summary_by_band_all_metrics.csv")
     print("  Reports:")
-    if CLASSIFICATION_MODE == 'triplet':
+    if CLASSIFICATION_SOURCE == 'connectivity_edges':
+        print("    - band-specific held-out probability reports in connectivity_classifiers")
+    elif CLASSIFICATION_MODE == 'triplet':
         print("    - classification_report_<band>.txt")
     else:
         print("    - classification_report_all_metrics_<band>.txt")
