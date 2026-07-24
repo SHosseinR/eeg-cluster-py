@@ -34,6 +34,12 @@ The project has two connected workflows:
    - In the current objective mode, minimize the patient's metric-space distance to the Healthy cohort reference.
    - Save per-subject/per-band solutions, aggregate target statistics, stability analyses, reports, and figures.
 
+   Profiles may instead select `stimulation_model = "static_adjacency"`.
+   This dynamics-free model distributes one signed total L1 connectivity
+   change over the stimulated node's incident/incoming/outgoing edges in
+   proportion to their original absolute weights. Its fixed-band NSGA layout
+   is node plus total change; duration and leak are absent.
+
 The optimization output is a computational research hypothesis, not a validated treatment recommendation. Do not describe simulated targets as clinically effective, and do not equate Granger-causal predictability with biological causation.
 
 ## Current experiment defaults
@@ -77,6 +83,14 @@ and runner timings beneath
 `results-signed-no-rejection/`, retaining the dataset-level `results-*`
 directory names inside that parent.
 
+The `tdbrain_coherence_static_signed_no_rejection_{logistic,rbf}.toml`
+profiles reuse their matching prior TD-BRAIN analysis/classifier artifacts
+read-only and write new static-model optimization results to isolated trees.
+They use signed total-change bounds `[-3, 3]`, incident-edge scaling, no
+patient rejection, and do not reload raw EEG baselines. The
+`tdbrain_coherence_advanced_classifiers.toml` profile adds optional PyTorch
+GCN and BrainNetCNN families for classification comparison only.
+
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 
 ## Architecture map
@@ -100,10 +114,13 @@ Never silently change these values to make a test or figure look better. Configu
 - `main.py`: eight-stage orchestration and persisted intermediate artifacts.
 - `classification_score/connectivity_*.py`: standalone natural-scale connectivity benchmarking, synthetic audit, split-half reliability, confound/topology sensitivity, conditional VAR diagnostics, and probability scoring.
 - `classification_score/band_connectivity_classifier.py`: production one-band connectivity-edge comparison, repeated held-out validation, deployable bundles, OOD scoring, and patient rankings.
+- `classification_score/neural_graph_models.py`: sklearn-compatible spectral GCN and BrainNetCNN-style connectivity classifiers with fold-internal early stopping.
+- `classification_score/advanced_graph_benchmark.py`: repeated TD-BRAIN single-band and three-band-fusion neural comparison and report generation.
 
 ### Optimization
 
 - `state_space_simulation.py`: stimulation-driven state-space dynamics.
+- `stimulation_models.py`: dynamics-free adjacency-scaled stimulation transforms.
 - `plasticity.py`: connectivity updates from simulated activation.
 - `nsga_optimizer.py`: pymoo problem definition, constraints, sampling, and NSGA-II execution.
 - `eeg_optimization.py`: patient-level objective construction, candidate evaluation/ranking, multiprocessing, and incremental subject results.

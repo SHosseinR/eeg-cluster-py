@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 import numpy as np
+import pandas as pd
 
 from band_stability_analysis import (
     build_analysis_tables,
@@ -140,6 +141,37 @@ class BandStabilityAnalysisTests(unittest.TestCase):
                 "cross_band_rank_probabilities.png",
             }
             self.assertEqual(set(os.listdir(figures)), expected_figures)
+
+    def test_static_model_dashboard_uses_node_and_total_change(self):
+        results = _synthetic_results(n_subjects=4)
+        for band_results in results.values():
+            for result in band_results.values():
+                result["stimulation_model"] = "static_adjacency"
+                solution = result["best_solution"]
+                solution["stimulation_model"] = "static_adjacency"
+                solution["stimulation_total_change"] = solution[
+                    "stimulation_amplitude"
+                ]
+                solution["stimulation_duration"] = None
+                solution["leak"] = None
+        with tempfile.TemporaryDirectory() as directory:
+            figures = os.path.join(directory, "figures")
+            output = run_band_stability_analysis(
+                results,
+                directory,
+                figures,
+                os.path.join(directory, "report.txt"),
+                n_resamples=20,
+                random_seed=4,
+            )
+            self.assertIn(
+                "delta_stimulation_profile_dashboard.png",
+                os.listdir(figures),
+            )
+            subject_table = pd.read_csv(output["paths"]["subject_table"])
+            self.assertTrue(
+                np.isfinite(subject_table["stimulation_total_change"]).all()
+            )
 
 
 if __name__ == "__main__":

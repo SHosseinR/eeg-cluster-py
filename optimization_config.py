@@ -64,6 +64,9 @@ NSGA_CONFIG = {
 }
 OPTIMIZATION_SETTINGS = DATASET_CONFIG.get("optimization", {})
 OPTIMIZATION_N_JOBS = OPTIMIZATION_SETTINGS.get("n_jobs")
+OPTIMIZATION_ANALYSIS_INPUT_DIR = os.path.normpath(
+    OPTIMIZATION_SETTINGS.get("analysis_input_directory", OUTPUT_DIR)
+)
 
 # Number of top-ranked Pareto solutions to keep per subject (used for weighted summaries)
 OPTIMIZATION_TOP_K = 5
@@ -77,12 +80,12 @@ PATIENT_REJECTION_PERCENT_BY_BAND = {
     for band in ("delta", "alpha", "beta")
 }
 PATIENT_REJECTION_RANKING_FILE = os.path.join(
-    OUTPUT_DIR,
+    OPTIMIZATION_ANALYSIS_INPUT_DIR,
     'data',
     'svm_margin_subject_ranking.csv'
 )
 PATIENT_REJECTION_RANKING_FILE_BY_BAND = os.path.join(
-    OUTPUT_DIR,
+    OPTIMIZATION_ANALYSIS_INPUT_DIR,
     'data',
     OPTIMIZATION_SETTINGS.get(
         "patient_ranking_template", "svm_margin_subject_ranking_{band}.csv"
@@ -105,8 +108,16 @@ OPTIMIZATION_MODE = 'nsga'
 OPTIMIZATION_OBJECTIVE_MODE = OPTIMIZATION_SETTINGS.get(
     "objective_mode", "distance_to_gt"
 )
+STIMULATION_MODEL = str(
+    OPTIMIZATION_SETTINGS.get("stimulation_model", "state_space")
+).strip().lower()
+if STIMULATION_MODEL not in {"state_space", "static_adjacency"}:
+    raise ValueError(
+        "optimization.stimulation_model must be 'state_space' or "
+        f"'static_adjacency'; got {STIMULATION_MODEL!r}"
+    )
 CLASSIFIER_MODEL_DIR = os.path.join(
-    OUTPUT_DIR,
+    OPTIMIZATION_ANALYSIS_INPUT_DIR,
     OPTIMIZATION_SETTINGS.get("classifier_model_directory", "data/connectivity_classifiers/models"),
 )
 
@@ -143,6 +154,21 @@ STIMULATION_AMPLITUDE_BOUNDS = tuple(
 STIMULATION_LEAK_BOUNDS = tuple(
     OPTIMIZATION_SETTINGS.get("stimulation_leak_bounds", (0.0, 2.0))
 )
+
+# Dynamics-free model: distribute one signed total change over the stimulated
+# node's original edges in proportion to their absolute adjacency weights.
+# Duration and leak do not exist in this decision-variable layout.
+STIMULATION_TOTAL_CHANGE_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get("stimulation_total_change_bounds", (-3.0, 3.0))
+)
+STATIC_STIMULATION_EDGE_SCOPE = str(
+    OPTIMIZATION_SETTINGS.get("static_edge_scope", "incident")
+).strip().lower()
+if STATIC_STIMULATION_EDGE_SCOPE not in {"incident", "incoming", "outgoing"}:
+    raise ValueError(
+        "optimization.static_edge_scope must be 'incident', 'incoming', or "
+        f"'outgoing'; got {STATIC_STIMULATION_EDGE_SCOPE!r}"
+    )
 
 # Hard feasibility bounds on raw final/baseline activation ratios. Candidates
 # outside this range are rejected by NSGA-II before the clipped ratios can make

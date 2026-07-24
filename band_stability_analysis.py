@@ -158,6 +158,9 @@ def build_analysis_tables(
             )
 
             amplitude = _as_float(solution.get("stimulation_amplitude"), default=0.0)
+            total_change = _as_float(
+                solution.get("stimulation_total_change"), default=amplitude
+            )
             feasible, violation = _solution_feasibility(solution)
             node = int(solution.get("node", -1))
             labels = result.get("channel_display_names") or result.get("channel_names") or []
@@ -174,6 +177,11 @@ def build_analysis_tables(
                 "target_node": node,
                 "target_label": target,
                 "stimulation_amplitude": amplitude,
+                "stimulation_total_change": total_change,
+                "stimulation_model": solution.get(
+                    "stimulation_model",
+                    result.get("stimulation_model", "state_space"),
+                ),
                 "stimulation_polarity": _stimulation_polarity(amplitude),
                 "stimulation_duration": _as_float(solution.get("stimulation_duration")),
                 "leak": _as_float(solution.get("leak")),
@@ -493,23 +501,57 @@ def plot_stimulation_profile_dashboard(
     output_path: str,
 ) -> None:
     group = subject_df[subject_df["band"] == band].copy()
+    is_static = (
+        "stimulation_model" in group
+        and group["stimulation_model"].eq("static_adjacency").all()
+    )
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(2, 2, figsize=(16, 11))
 
-    sns.histplot(data=group, x="stimulation_amplitude", hue="stimulation_polarity", bins=20, ax=axes[0, 0])
-    axes[0, 0].axvline(0, color="black", linestyle="--", linewidth=1)
-    axes[0, 0].set_title("Selected signed amplitudes")
-
-    scatter = axes[0, 1].scatter(
-        group["stimulation_duration"], group["stimulation_amplitude"],
-        c=group["leak"], s=35 + 90 * np.clip(group["relative_improvement"], 0, 1),
-        cmap="viridis", alpha=0.8, edgecolors="white", linewidths=0.4,
+    strength_column = (
+        "stimulation_total_change" if is_static else "stimulation_amplitude"
     )
+    sns.histplot(
+        data=group,
+        x=strength_column,
+        hue="stimulation_polarity",
+        bins=20,
+        ax=axes[0, 0],
+    )
+    axes[0, 0].axvline(0, color="black", linestyle="--", linewidth=1)
+    axes[0, 0].set_title(
+        "Selected signed total adjacency changes"
+        if is_static
+        else "Selected signed amplitudes"
+    )
+
+    if is_static:
+        scatter = axes[0, 1].scatter(
+            group["target_node"],
+            group["stimulation_total_change"],
+            c=group["relative_improvement"],
+            s=55,
+            cmap="coolwarm",
+            alpha=0.8,
+            edgecolors="white",
+            linewidths=0.4,
+        )
+        axes[0, 1].set_xlabel("Target node index")
+        axes[0, 1].set_ylabel("Signed total adjacency change")
+        axes[0, 1].set_title("Dynamics-free optimization variables")
+        colorbar_label = "Relative improvement"
+    else:
+        scatter = axes[0, 1].scatter(
+            group["stimulation_duration"], group["stimulation_amplitude"],
+            c=group["leak"], s=35 + 90 * np.clip(group["relative_improvement"], 0, 1),
+            cmap="viridis", alpha=0.8, edgecolors="white", linewidths=0.4,
+        )
+        axes[0, 1].set_xlabel("Duration")
+        axes[0, 1].set_ylabel("Signed amplitude")
+        axes[0, 1].set_title("Protocol parameters (color = leak, size = improvement)")
+        colorbar_label = "Leak"
     axes[0, 1].axhline(0, color="black", linestyle="--", linewidth=1)
-    axes[0, 1].set_xlabel("Duration")
-    axes[0, 1].set_ylabel("Signed amplitude")
-    axes[0, 1].set_title("Protocol parameters (color = leak, size = improvement)")
-    fig.colorbar(scatter, ax=axes[0, 1], label="Leak")
+    fig.colorbar(scatter, ax=axes[0, 1], label=colorbar_label)
 
     target_counts = pd.crosstab(group["target_label"], group["stimulation_polarity"])
     target_counts = target_counts.loc[target_counts.sum(axis=1).sort_values(ascending=False).index]

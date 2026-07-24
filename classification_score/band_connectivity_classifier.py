@@ -201,6 +201,8 @@ def select_band_models(summary: pd.DataFrame) -> dict[str, str]:
         "linear_svm_sigmoid": 1,
         "rbf_svm": 2,
         "extra_trees": 3,
+        "gcn": 4,
+        "brainnetcnn": 5,
     }
     selected: dict[str, str] = {}
     for band, rows in summary.groupby("band", sort=False):

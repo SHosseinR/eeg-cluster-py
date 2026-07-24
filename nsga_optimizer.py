@@ -40,12 +40,9 @@ class EEGOptimizationProblem(Problem):
     """
     pymoo Problem definition for EEG optimization.
     
-    Decision variables:
-    - x[0]: Stimulation node (integer, 0 to n_nodes-1)
-    - x[1]: Frequency band (integer, 0 to n_bands-1) [omitted if fixed_band_index is set]
-    - x[2]: Stimulation duration (float)
-    - x[3]: Stimulation amplitude (float)
-    - x[4]: Leak (float)
+    ``state_space`` decision variables are node, optional band, duration,
+    amplitude, and leak. ``static_adjacency`` removes dynamics-only duration
+    and leak, leaving node, optional band, and signed total change.
     
     Objectives:
     - f[0] ... f[n-1]: Network measures to optimize
@@ -60,7 +57,8 @@ class EEGOptimizationProblem(Problem):
                  leak_bounds: tuple = (0.0, 2.0),
                  n_objectives: int = 3,
                  n_constraints: int = 0,
-                 fixed_band_index: int = None):
+                 fixed_band_index: int = None,
+                 stimulation_model: str = "state_space"):
         """
         Initialize EEG optimization problem.
         
@@ -77,6 +75,11 @@ class EEGOptimizationProblem(Problem):
         """
         self.evaluate_func = evaluate_func
         self.fixed_band_index = fixed_band_index
+        self.stimulation_model = str(stimulation_model).strip().lower()
+        if self.stimulation_model not in {"state_space", "static_adjacency"}:
+            raise ValueError(
+                "stimulation_model must be 'state_space' or 'static_adjacency'"
+            )
         self._accepts_continuous = self._check_accepts_continuous(evaluate_func)
         self._accepts_leak = self._check_accepts_leak(evaluate_func)
         
@@ -94,7 +97,28 @@ class EEGOptimizationProblem(Problem):
                     "finite and ordered as (minimum, maximum)."
                 )
 
-        if fixed_band_index is None:
+        if self.stimulation_model == "static_adjacency":
+            if fixed_band_index is None:
+                super().__init__(
+                    n_var=3,  # node, band, signed total change
+                    n_obj=n_objectives,
+                    n_ieq_constr=int(n_constraints),
+                    xl=np.array([0.0, 0.0, float(amplitude_min)]),
+                    xu=np.array([
+                        float(n_nodes - 1),
+                        float(n_bands - 1),
+                        float(amplitude_max),
+                    ]),
+                )
+            else:
+                super().__init__(
+                    n_var=2,  # node, signed total change
+                    n_obj=n_objectives,
+                    n_ieq_constr=int(n_constraints),
+                    xl=np.array([0.0, float(amplitude_min)]),
+                    xu=np.array([float(n_nodes - 1), float(amplitude_max)]),
+                )
+        elif fixed_band_index is None:
             # Define problem with band as a decision variable
             super().__init__(
                 n_var=5,  # node, band, stimulation_duration, stimulation_amplitude, leak
@@ -162,8 +186,8 @@ class EEGOptimizationProblem(Problem):
         
         Parameters
         ----------
-        X : ndarray, shape (n_pop, 5)
-            Population of solutions (node, band, duration, amplitude, leak)
+        X : ndarray
+            Population matching the configured stimulation-model layout.
         out : dict
             Output dictionary to store objectives
         """
@@ -172,7 +196,16 @@ class EEGOptimizationProblem(Problem):
         constraints = []
         for x in X:
             node = int(np.clip(np.round(x[0]), 0, self.xu[0]))
-            if self.fixed_band_index is None:
+            if self.stimulation_model == "static_adjacency":
+                if self.fixed_band_index is None:
+                    band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
+                    amplitude = float(x[2])
+                else:
+                    band = int(self.fixed_band_index)
+                    amplitude = float(x[1])
+                duration = None
+                leak = None
+            elif self.fixed_band_index is None:
                 band = int(np.clip(np.round(x[1]), 0, self.xu[1]))
                 duration = float(x[2])
                 amplitude = float(x[3])
@@ -182,7 +215,9 @@ class EEGOptimizationProblem(Problem):
                 duration = float(x[1])
                 amplitude = float(x[2])
                 leak = float(x[3])
-            if self._accepts_leak:
+            if self.stimulation_model == "static_adjacency":
+                evaluation = self.evaluate_func(node, band, None, amplitude, None)
+            elif self._accepts_leak:
                 evaluation = self.evaluate_func(node, band, duration, amplitude, leak)
             elif self._accepts_continuous:
                 evaluation = self.evaluate_func(node, band, duration, amplitude)
@@ -236,7 +271,8 @@ class NSGAIIOptimizer:
                  mutation_eta: float = 20.0,
                  seed: int = None,
                  verbose: bool = True,
-                 fixed_band_index: int = None):
+                 fixed_band_index: int = None,
+                 stimulation_model: str = "state_space"):
         """
         Initialize NSGA-II optimizer using pymoo.
         
@@ -284,6 +320,7 @@ class NSGAIIOptimizer:
         self.seed = seed
         self.verbose = verbose
         self.fixed_band_index = fixed_band_index
+        self.stimulation_model = str(stimulation_model).strip().lower()
         self.n_constraints = int(n_constraints)
         self.activation_ratio_bounds = activation_ratio_bounds
         
@@ -297,7 +334,8 @@ class NSGAIIOptimizer:
             leak_bounds=leak_bounds,
             n_objectives=self.n_objectives,
             n_constraints=self.n_constraints,
-            fixed_band_index=fixed_band_index
+            fixed_band_index=fixed_band_index,
+            stimulation_model=self.stimulation_model,
         )
         
         # Set default mutation probability if not specified
@@ -305,7 +343,10 @@ class NSGAIIOptimizer:
             mutation_prob = 1.0 / self.problem.n_var
         
         # Create algorithm
-        amplitude_index = 3 if fixed_band_index is None else 2
+        if self.stimulation_model == "static_adjacency":
+            amplitude_index = 2 if fixed_band_index is None else 1
+        else:
+            amplitude_index = 3 if fixed_band_index is None else 2
         self.algorithm = NSGA2(
             pop_size=population_size,
             sampling=ZeroAmplitudeAnchorSampling(amplitude_index),
@@ -344,7 +385,16 @@ class NSGAIIOptimizer:
         solutions = []
         for x, f, g in zip(X, F, G):
             node = int(np.clip(np.round(x[0]), 0, self.problem.xu[0]))
-            if self.fixed_band_index is None:
+            if self.stimulation_model == "static_adjacency":
+                if self.fixed_band_index is None:
+                    band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
+                    amplitude = float(x[2])
+                else:
+                    band = int(self.fixed_band_index)
+                    amplitude = float(x[1])
+                duration = None
+                leak = None
+            elif self.fixed_band_index is None:
                 band = int(np.clip(np.round(x[1]), 0, self.problem.xu[1]))
                 duration = float(x[2])
                 amplitude = float(x[3])
@@ -363,6 +413,12 @@ class NSGAIIOptimizer:
                 'band_name': band_name,
                 'stimulation_duration': duration,
                 'stimulation_amplitude': amplitude,
+                'stimulation_total_change': (
+                    amplitude
+                    if self.stimulation_model == "static_adjacency"
+                    else None
+                ),
+                'stimulation_model': self.stimulation_model,
                 'leak': leak,
                 'objectives': f,
                 'constraint_values': constraint_values,

@@ -1,6 +1,9 @@
 # Standalone probabilistic EEG classification study
 
-This directory is isolated from the analysis and optimization pipelines. It reads their stable saved artifacts, writes only below `classification_score/`, and never changes the experiment configuration.
+Its benchmark commands read stable saved artifacts and write to an explicitly
+selected output directory. Independently validated one-band bundles can be
+loaded by the optimizer; the advanced benchmark itself does not run
+optimization.
 
 The main finding is that the configured graph-measure space is the wrong representation for classification in these data. Spatial covariance geometry from band-filtered EEG is much more discriminative. See [RESULTS.md](RESULTS.md) for the measured results and limitations.
 
@@ -34,8 +37,35 @@ Model families:
 - Gaussian naive Bayes;
 - random forest and extremely randomized trees;
 - histogram gradient boosting.
+- a spectral graph convolutional network (GCN);
+- a BrainNetCNN-style edge-to-edge convolutional network;
+- three-band graph-neural fusion variants of both architectures.
 
 Every preprocessing, univariate feature selection, scaling, and hyperparameter choice is fitted inside the training portion of nested subject-level cross-validation. No epoch is treated as an independent sample. Primary metrics include ROC AUC, balanced accuracy, Brier score, log loss, and expected calibration error.
+
+The neural models use training-fold-only stratified validation data for early
+stopping and temperature scaling. PyTorch is optional; install
+`requirements_gnn.txt` only when selecting `gcn` or `brainnetcnn`.
+
+## TD-BRAIN graph-neural benchmark
+
+Reuse the saved natural-scale coherence matrices and compare single-band GCN,
+BrainNetCNN, and three-band fusion without rerunning EEG analysis:
+
+```powershell
+D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe `
+  -m classification_score.advanced_graph_benchmark `
+  D:/path/to/results-TDBRAIN-restEC-coherence/data/connectivity_matrices.npy `
+  results-advanced-classifiers/benchmark `
+  --mode quick --outer-splits 5 --repeats 5 --n-jobs 1
+```
+
+The command writes out-of-fold predictions, a combined CSV, a comparison
+figure, and `ADVANCED_CLASSIFIER_REPORT.md`. The main analysis pipeline also
+recognizes `gcn` and `brainnetcnn` in `[classification].models`; see
+`tdbrain_coherence_advanced_classifiers.toml`. The fused variants are
+classification-study models and are intentionally not bandwise stimulation
+objectives.
 
 ## Reproduce the comparisons
 
@@ -183,6 +213,8 @@ D:/Users/hosei/anaconda3/envs/eeg-graph/python.exe classification_score/selected
 
 - `data_features.py`: artifact loading and all feature families;
 - `modeling.py`: model registry, nested CV, probability metrics, and final tuning;
+- `neural_graph_models.py`: sklearn-compatible GCN and BrainNetCNN estimators;
+- `advanced_graph_benchmark.py`: TD-BRAIN single-band/fused neural comparison;
 - `benchmark.py`: resumable comparison CLI;
 - `confound_checks.py`: age/sex baseline and matched-cohort validation;
 - `cross_dataset_test.py`: strict train-one-dataset/test-the-other experiment;

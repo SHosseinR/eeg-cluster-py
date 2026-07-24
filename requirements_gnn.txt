@@ -1,0 +1,3 @@
+# Optional dependencies for gcn and brainnetcnn classification models.
+# Install after requirements.txt in the same Python environment.
+torch>=2.0
