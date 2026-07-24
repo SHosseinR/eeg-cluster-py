@@ -6,7 +6,7 @@ import json
 import math
 import os
 from itertools import combinations
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -493,6 +493,33 @@ def _all_solution_audit(band_results: Mapping[str, Mapping]) -> Tuple[int, int, 
     return total, recorded, infeasible
 
 
+def _stable_histogram_spec(
+    values,
+    requested_bins: int = 20,
+) -> Tuple[int, Optional[Tuple[float, float]], Optional[float]]:
+    """Choose finite histogram bins for constant or near-constant parameters.
+
+    Optimizers often return values within a few floating-point ULPs of a hard
+    bound. Dividing that tiny representable range into a fixed number of bins
+    can produce duplicate bin edges in NumPy. Such values are scientifically
+    indistinguishable here, so they are displayed as one bin around their
+    median rather than as numerical optimizer noise.
+    """
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return 1, None, None
+    lower = float(np.min(finite))
+    upper = float(np.max(finite))
+    center = float(np.median(finite))
+    scale = max(1.0, abs(lower), abs(upper))
+    if upper - lower <= 1e-9 * scale:
+        padding = max(0.05, 0.02 * scale)
+        return 1, (center - padding, center + padding), center
+    return max(1, int(requested_bins)), None, None
+
+
 def plot_stimulation_profile_dashboard(
     band: str,
     subject_df: pd.DataFrame,
@@ -511,14 +538,31 @@ def plot_stimulation_profile_dashboard(
     strength_column = (
         "stimulation_total_change" if is_static else "stimulation_amplitude"
     )
+    histogram_bins, histogram_range, constant_center = _stable_histogram_spec(
+        group[strength_column],
+        requested_bins=20,
+    )
+    histogram_kwargs = {"bins": histogram_bins}
+    if histogram_range is not None:
+        histogram_kwargs["binrange"] = histogram_range
     sns.histplot(
         data=group,
         x=strength_column,
         hue="stimulation_polarity",
-        bins=20,
         ax=axes[0, 0],
+        **histogram_kwargs,
     )
     axes[0, 0].axvline(0, color="black", linestyle="--", linewidth=1)
+    if constant_center is not None:
+        axes[0, 0].text(
+            0.98,
+            0.94,
+            f"All selected values ≈ {constant_center:.4g}",
+            transform=axes[0, 0].transAxes,
+            ha="right",
+            va="top",
+            fontsize=10,
+        )
     axes[0, 0].set_title(
         "Selected signed total adjacency changes"
         if is_static
@@ -566,13 +610,24 @@ def plot_stimulation_profile_dashboard(
     selected_recorded = group[group["feasibility_recorded"]]
     selected_infeasible = int((~selected_recorded["feasible"]).sum())
     if recorded_solutions:
-        feasibility_text = (
+        feasibility_lines = (
             f"Solutions with feasibility metadata = {recorded_solutions:,}/{total_solutions:,}\n"
             f"Infeasible recorded solutions = {infeasible_solutions:,} ({audit_rate:.1%})\n"
             f"Infeasible selected solutions = {selected_infeasible}\n"
-            f"Selected raw-ratio minimum = {group['raw_activation_ratio_min'].min():.3f}\n"
-            f"Selected raw-ratio maximum = {group['raw_activation_ratio_max'].max():.3f}"
         )
+        if is_static:
+            feasibility_text = (
+                feasibility_lines
+                + "Activation-ratio bounds = not applicable (static model)"
+            )
+        else:
+            feasibility_text = (
+                feasibility_lines
+                + f"Selected raw-ratio minimum = "
+                f"{group['raw_activation_ratio_min'].min():.3f}\n"
+                + f"Selected raw-ratio maximum = "
+                f"{group['raw_activation_ratio_max'].max():.3f}"
+            )
     else:
         feasibility_text = (
             f"Evaluated solutions present = {total_solutions:,}\n"
@@ -589,6 +644,9 @@ def plot_stimulation_profile_dashboard(
     )
     axes[1, 1].text(0.02, 0.98, audit_text, va="top", family="monospace", fontsize=11)
     axes[1, 1].set_title("Protocol stability and available metadata")
+    axes[0, 0].set_xlabel(
+        "Signed total adjacency change" if is_static else "Signed amplitude"
+    )
     fig.suptitle(f"{band.capitalize()} stimulation profile", fontsize=16)
     fig.tight_layout()
     _save_figure(fig, output_path)

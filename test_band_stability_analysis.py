@@ -144,14 +144,23 @@ class BandStabilityAnalysisTests(unittest.TestCase):
 
     def test_static_model_dashboard_uses_node_and_total_change(self):
         results = _synthetic_results(n_subjects=4)
+        result_index = 0
         for band_results in results.values():
             for result in band_results.values():
                 result["stimulation_model"] = "static_adjacency"
                 solution = result["best_solution"]
                 solution["stimulation_model"] = "static_adjacency"
-                solution["stimulation_total_change"] = solution[
-                    "stimulation_amplitude"
-                ]
+                # Exercise bound-saturated optimizer output whose values differ
+                # only by floating-point noise. Twenty ordinary bins cannot be
+                # represented across this range.
+                near_bound = (
+                    3.0
+                    if result_index % 2 == 0
+                    else np.nextafter(3.0, 0.0)
+                )
+                result_index += 1
+                solution["stimulation_amplitude"] = near_bound
+                solution["stimulation_total_change"] = near_bound
                 solution["stimulation_duration"] = None
                 solution["leak"] = None
         with tempfile.TemporaryDirectory() as directory:

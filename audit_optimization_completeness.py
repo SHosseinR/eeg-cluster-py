@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import tomllib
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,11 @@ from saved_results_utils import load_dataset_profile, load_npy_dict, ordered_ban
 
 def audit(dataset_config: str, output: str | None = None) -> Path:
     profile = load_dataset_profile(dataset_config)
+    with profile.config_path.open('rb') as stream:
+        configured = tomllib.load(stream)
+    configured_stimulation_model = str(
+        configured.get('optimization', {}).get('stimulation_model', 'state_space')
+    )
     connectivity = load_npy_dict(
         profile.data_dir / 'connectivity_matrices.npy', 'connectivity matrices'
     )
@@ -41,7 +47,10 @@ def audit(dataset_config: str, output: str | None = None) -> Path:
                 'optimized_patient_probability': float(final[0]),
                 'stimulation_model': solution.get(
                     'stimulation_model',
-                    (result or {}).get('stimulation_model', 'state_space'),
+                    (result or {}).get(
+                        'stimulation_model',
+                        configured_stimulation_model,
+                    ),
                 ),
                 'stimulation_amplitude': float(solution.get('stimulation_amplitude', np.nan)),
                 'stimulation_total_change': (
