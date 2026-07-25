@@ -1,5 +1,71 @@
 # Static stimulation and advanced TD-BRAIN classifiers
 
+## Direct-plus-one-hop activation with original plasticity
+
+The hybrid model requested after the direct-edge static experiment is
+selected with:
+
+```toml
+[optimization]
+stimulation_model = "adjacency_activation"
+stimulation_activation_amount_bounds = [-3.0, 3.0]
+adjacency_activation_neighbor_scale = 1.0
+```
+
+For selected node `k`, the stimulation stage computes:
+
+```text
+delta_x = amount * (e_k + neighbor_scale * A_norm @ e_k)
+final_activation = baseline_activation + delta_x
+```
+
+`A_norm` is the same spectrally normalized, zero-diagonal adjacency used by
+the state-space model. With the current matrix convention, `A_norm @ e_k` is
+column `k`. For symmetric coherence matrices this is simply the selected
+node's connectivity profile.
+
+The selected node therefore changes by exactly `amount`; each directly
+connected node changes by
+`amount * neighbor_scale * A_norm[i, k]`. A node connected only through a
+two-hop path does not change. There are no `A_norm^2` or higher propagation
+terms, no duration, no leak, and no trajectory. `amount` is the signed
+direct-node activation change, not the L1 sum over all changed nodes.
+
+Everything after activation is retained from the original model:
+
+```text
+raw_ratio_i = final_activation_i / baseline_activation_i
+ratio_i = clip(raw_ratio_i, 0.1, 10)
+A_new[i,j] = A_original[i,j] * (ratio_i * ratio_j)^plasticity_scaling
+```
+
+The optimizer still rejects candidates whose *raw* ratios fall outside the
+configured feasibility bounds. In classifier-probability mode, plasticity
+updates preserve natural coherence scale instead of applying candidate-wise
+min-max normalization.
+
+The complete isolated logistic profiles are:
+
+- `tdbrain_coherence_adjacency_activation_signed_no_rejection_logistic.toml`
+- `first_paper_coherence_adjacency_activation_signed_no_rejection_logistic.toml`
+
+They use delta, alpha, and beta coherence classifiers, retain every patient,
+use neighbor scale `1.0`, signed direct-node amount bounds `[-3, 3]`,
+population 100, 50 generations, and four optimization workers.
+
+Run the complete two-dataset pipeline:
+
+```powershell
+Set-Location D:\university\projects\worktree\eeg-static-stim-graph-classifiers
+
+.\run_coherence_probability_pipeline.ps1 `
+  -DatasetConfigs @(
+    "tdbrain_coherence_adjacency_activation_signed_no_rejection_logistic.toml",
+    "first_paper_coherence_adjacency_activation_signed_no_rejection_logistic.toml"
+  ) `
+  -RunOutputDir "results-adjacency-activation-signed-no-rejection-logistic"
+```
+
 ## Dynamics-free stimulation model
 
 Set `optimization.stimulation_model = "static_adjacency"` in a dataset TOML

@@ -161,6 +161,10 @@ def build_analysis_tables(
             total_change = _as_float(
                 solution.get("stimulation_total_change"), default=amplitude
             )
+            activation_amount = _as_float(
+                solution.get("stimulation_activation_amount"),
+                default=amplitude,
+            )
             feasible, violation = _solution_feasibility(solution)
             node = int(solution.get("node", -1))
             labels = result.get("channel_display_names") or result.get("channel_names") or []
@@ -178,6 +182,7 @@ def build_analysis_tables(
                 "target_label": target,
                 "stimulation_amplitude": amplitude,
                 "stimulation_total_change": total_change,
+                "stimulation_activation_amount": activation_amount,
                 "stimulation_model": solution.get(
                     "stimulation_model",
                     result.get("stimulation_model", "state_space"),
@@ -532,12 +537,20 @@ def plot_stimulation_profile_dashboard(
         "stimulation_model" in group
         and group["stimulation_model"].eq("static_adjacency").all()
     )
+    is_adjacency_activation = (
+        "stimulation_model" in group
+        and group["stimulation_model"].eq("adjacency_activation").all()
+    )
+    is_dynamics_free = is_static or is_adjacency_activation
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(2, 2, figsize=(16, 11))
 
-    strength_column = (
-        "stimulation_total_change" if is_static else "stimulation_amplitude"
-    )
+    if is_static:
+        strength_column = "stimulation_total_change"
+    elif is_adjacency_activation:
+        strength_column = "stimulation_activation_amount"
+    else:
+        strength_column = "stimulation_amplitude"
     histogram_bins, histogram_range, constant_center = _stable_histogram_spec(
         group[strength_column],
         requested_bins=20,
@@ -566,13 +579,15 @@ def plot_stimulation_profile_dashboard(
     axes[0, 0].set_title(
         "Selected signed total adjacency changes"
         if is_static
+        else "Selected signed direct activation amounts"
+        if is_adjacency_activation
         else "Selected signed amplitudes"
     )
 
-    if is_static:
+    if is_dynamics_free:
         scatter = axes[0, 1].scatter(
             group["target_node"],
-            group["stimulation_total_change"],
+            group[strength_column],
             c=group["relative_improvement"],
             s=55,
             cmap="coolwarm",
@@ -581,7 +596,11 @@ def plot_stimulation_profile_dashboard(
             linewidths=0.4,
         )
         axes[0, 1].set_xlabel("Target node index")
-        axes[0, 1].set_ylabel("Signed total adjacency change")
+        axes[0, 1].set_ylabel(
+            "Signed total adjacency change"
+            if is_static
+            else "Signed direct activation amount"
+        )
         axes[0, 1].set_title("Dynamics-free optimization variables")
         colorbar_label = "Relative improvement"
     else:
@@ -645,7 +664,11 @@ def plot_stimulation_profile_dashboard(
     axes[1, 1].text(0.02, 0.98, audit_text, va="top", family="monospace", fontsize=11)
     axes[1, 1].set_title("Protocol stability and available metadata")
     axes[0, 0].set_xlabel(
-        "Signed total adjacency change" if is_static else "Signed amplitude"
+        "Signed total adjacency change"
+        if is_static
+        else "Signed direct activation amount"
+        if is_adjacency_activation
+        else "Signed amplitude"
     )
     fig.suptitle(f"{band.capitalize()} stimulation profile", fontsize=16)
     fig.tight_layout()

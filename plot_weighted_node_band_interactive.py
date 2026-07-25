@@ -193,6 +193,14 @@ def _format_stimulation_details(
             "model=static_adjacency",
             f"total_change={_format_value(total_change)}",
         ]
+    activation_amount = solution.get("stimulation_activation_amount")
+    if activation_amount is not None:
+        return [
+            "model=adjacency_activation",
+            f"direct_activation={_format_value(activation_amount)}",
+            "duration=n/a",
+            "leak=n/a",
+        ]
     return [
         f"duration={_format_value(solution.get('stimulation_duration'))}",
         f"amplitude={_format_value(solution.get('stimulation_amplitude'))}",

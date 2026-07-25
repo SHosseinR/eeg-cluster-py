@@ -1,7 +1,8 @@
 """Plot one subject's configured stimulation effect and adjacency change.
 
-State-space results produce activation plots. Dynamics-free static results
-produce selected-edge change plots instead. Optimization is never rerun.
+State-space and adjacency-activation results produce activation plots.
+Direct static-adjacency results produce selected-edge change plots instead.
+Optimization is never rerun.
 """
 import argparse
 import os
@@ -22,11 +23,15 @@ from optimization_config import (
     PLASTICITY_CONFIG,
     OPTIMIZATION_DEBUG_SUBJECT,
     STATIC_STIMULATION_EDGE_SCOPE,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
 from channel_metadata import get_display_channel_names
-from stimulation_models import apply_static_adjacency_stimulation
+from stimulation_models import (
+    apply_static_adjacency_stimulation,
+    run_adjacency_activation_stimulation,
+)
 
 
 def _load_pickle_dict(path: str) -> Dict:
@@ -200,6 +205,7 @@ def main() -> None:
         )
     ).strip().lower()
     is_static = stimulation_model == "static_adjacency"
+    is_adjacency_activation = stimulation_model == "adjacency_activation"
 
     if is_static:
         total_change = best_solution.get(
@@ -228,25 +234,45 @@ def main() -> None:
         baseline_activation = results.get("baseline_activation")
         if baseline_activation is None:
             raise RuntimeError(f"Missing baseline_activation for subject: {subject_id}")
-        duration = best_solution.get("stimulation_duration")
         amplitude = best_solution.get("stimulation_amplitude")
-        leak = best_solution.get("leak")
-        if duration is None:
-            duration = float(SIMULATION_CONFIG["stimulation_duration"])
         if amplitude is None:
             amplitude = float(SIMULATION_CONFIG["stimulation_amplitude"])
-        if leak is None:
-            leak = float(SIMULATION_CONFIG.get("leak", 0.0))
-        sim_results = run_full_simulation(
-            adjacency_matrix=original_matrix,
-            baseline_activation=np.array(baseline_activation, dtype=float),
-            stimulation_node=node_idx,
-            stimulation_duration=float(duration),
-            stimulation_amplitude=float(amplitude),
-            dt=float(SIMULATION_CONFIG["dt"]),
-            stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
-            leak=float(leak),
-        )
+        if is_adjacency_activation:
+            neighbor_scale = results.get(
+                "adjacency_activation_neighbor_scale",
+                ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+            )
+            sim_results = run_adjacency_activation_stimulation(
+                adjacency_matrix=original_matrix,
+                baseline_activation=np.array(baseline_activation, dtype=float),
+                stimulation_node=node_idx,
+                stimulation_amount=float(amplitude),
+                neighbor_scale=float(neighbor_scale),
+                stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+            )
+            print(
+                "Adjacency activation: "
+                f"direct={float(amplitude):.6g}, "
+                f"neighbor_scale={float(neighbor_scale):.6g}, "
+                "orientation=column"
+            )
+        else:
+            duration = best_solution.get("stimulation_duration")
+            leak = best_solution.get("leak")
+            if duration is None:
+                duration = float(SIMULATION_CONFIG["stimulation_duration"])
+            if leak is None:
+                leak = float(SIMULATION_CONFIG.get("leak", 0.0))
+            sim_results = run_full_simulation(
+                adjacency_matrix=original_matrix,
+                baseline_activation=np.array(baseline_activation, dtype=float),
+                stimulation_node=node_idx,
+                stimulation_duration=float(duration),
+                stimulation_amplitude=float(amplitude),
+                dt=float(SIMULATION_CONFIG["dt"]),
+                stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+                leak=float(leak),
+            )
         if PLASTICITY_CONFIG.get("plasticity_enabled", True):
             updated_matrix = compute_plasticity_effect(
                 adjacency_matrix=original_matrix,
@@ -376,23 +402,45 @@ def main() -> None:
         print(f"Saved static edge-profile heatmap to: {edge_heatmap_path}")
     else:
         trajectory = sim_results["trajectory"]
-        baseline = np.array(baseline_activation, dtype=float).reshape(-1, 1)
-        delta = trajectory - baseline
-        time = np.arange(trajectory.shape[1]) * float(SIMULATION_CONFIG["dt"])
+        if trajectory is None:
+            delta = np.asarray(sim_results["activation_change"], dtype=float)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            x = np.arange(delta.size)
+            colors = [
+                "tab:red" if index == node_idx else "tab:blue"
+                for index in range(delta.size)
+            ]
+            ax.bar(x, delta, color=colors, alpha=0.85)
+            ax.axhline(0.0, color="black", linewidth=1)
+            ax.set_xticks(x)
+            ax.set_xticklabels(
+                channel_names, rotation=45, ha="right", fontsize=8
+            )
+            ax.set_title(
+                f"Direct + One-Hop Activation Change - {subject_id} "
+                f"({band_name}, node {node_label})"
+            )
+            ax.set_xlabel("Electrode")
+            ax.set_ylabel("Final activation change")
+            ax.grid(axis="y", alpha=0.3)
+        else:
+            baseline = np.array(baseline_activation, dtype=float).reshape(-1, 1)
+            delta = trajectory - baseline
+            time = np.arange(trajectory.shape[1]) * float(SIMULATION_CONFIG["dt"])
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        for idx in range(delta.shape[0]):
-            label = channel_names[idx] if idx < len(channel_names) else f"Ch{idx}"
-            ax.plot(time, delta[idx, :], linewidth=1.0, alpha=0.8, label=label)
-        ax.set_title(
-            f"Activation Change Over Time - {subject_id} "
-            f"({band_name}, node {node_label})"
-        )
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Activation change (x - baseline)")
-        ax.grid(alpha=0.3)
-        if not args.no_legend and delta.shape[0] <= 25:
-            ax.legend(loc="upper right", fontsize=8, ncol=2)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            for idx in range(delta.shape[0]):
+                label = channel_names[idx] if idx < len(channel_names) else f"Ch{idx}"
+                ax.plot(time, delta[idx, :], linewidth=1.0, alpha=0.8, label=label)
+            ax.set_title(
+                f"Activation Change Over Time - {subject_id} "
+                f"({band_name}, node {node_label})"
+            )
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Activation change (x - baseline)")
+            ax.grid(alpha=0.3)
+            if not args.no_legend and delta.shape[0] <= 25:
+                ax.legend(loc="upper right", fontsize=8, ncol=2)
         activation_path = os.path.join(
             output_dir, f"{file_tag}_activation_change.png"
         )

@@ -4,7 +4,10 @@ Configuration for NSGA-II optimization of EEG connectivity
 
 import os
 
+import numpy as np
+
 from config import DATASET_CONFIG, OUTPUT_DIR
+from stimulation_models import STIMULATION_MODELS
 
 # ============================================================================
 # OPTIMIZATION PARAMETERS
@@ -111,10 +114,10 @@ OPTIMIZATION_OBJECTIVE_MODE = OPTIMIZATION_SETTINGS.get(
 STIMULATION_MODEL = str(
     OPTIMIZATION_SETTINGS.get("stimulation_model", "state_space")
 ).strip().lower()
-if STIMULATION_MODEL not in {"state_space", "static_adjacency"}:
+if STIMULATION_MODEL not in STIMULATION_MODELS:
     raise ValueError(
-        "optimization.stimulation_model must be 'state_space' or "
-        f"'static_adjacency'; got {STIMULATION_MODEL!r}"
+        "optimization.stimulation_model must be one of "
+        f"{sorted(STIMULATION_MODELS)}; got {STIMULATION_MODEL!r}"
     )
 CLASSIFIER_MODEL_DIR = os.path.join(
     OPTIMIZATION_ANALYSIS_INPUT_DIR,
@@ -168,6 +171,28 @@ if STATIC_STIMULATION_EDGE_SCOPE not in {"incident", "incoming", "outgoing"}:
     raise ValueError(
         "optimization.static_edge_scope must be 'incident', 'incoming', or "
         f"'outgoing'; got {STATIC_STIMULATION_EDGE_SCOPE!r}"
+    )
+
+# Dynamics-free activation model:
+#   delta_x = amount * (e_k + neighbor_scale * A_norm @ e_k)
+# The amount is the direct signed change at the selected node. Duration and
+# leak are absent from this decision-variable layout.
+STIMULATION_ACTIVATION_AMOUNT_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get(
+        "stimulation_activation_amount_bounds",
+        (-3.0, 3.0),
+    )
+)
+ADJACENCY_ACTIVATION_NEIGHBOR_SCALE = float(
+    OPTIMIZATION_SETTINGS.get("adjacency_activation_neighbor_scale", 1.0)
+)
+if (
+    not np.isfinite(ADJACENCY_ACTIVATION_NEIGHBOR_SCALE)
+    or ADJACENCY_ACTIVATION_NEIGHBOR_SCALE < 0.0
+):
+    raise ValueError(
+        "optimization.adjacency_activation_neighbor_scale must be finite "
+        "and non-negative"
     )
 
 # Hard feasibility bounds on raw final/baseline activation ratios. Candidates

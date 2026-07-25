@@ -267,6 +267,8 @@ def test_full_pipeline():
         channel_names=[f'Ch{i}' for i in range(n_nodes)],
         selected_method='plv',
         optimization_measures=['global_efficiency', 'clustering_coefficient', 'modularity'],
+        objective_mode='distance_to_gt',
+        stimulation_model='state_space',
         nsga_config={'population_size': 10, 'n_generations': 5, 
                     'crossover_prob': 0.9, 'mutation_prob': 0.1, 'tournament_size': 3}
     )

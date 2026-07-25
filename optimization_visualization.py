@@ -1789,6 +1789,11 @@ def create_optimization_report(optimization_results: Dict,
                         "  Signed total adjacency change: "
                         f"{sol['stimulation_total_change']:.4f}\n"
                     )
+                elif sol.get('stimulation_activation_amount') is not None:
+                    f.write(
+                        "  Signed direct activation amount: "
+                        f"{sol['stimulation_activation_amount']:.4f}\n"
+                    )
                 elif sol.get('stimulation_amplitude') is not None:
                     f.write(f"  Stimulation amplitude: {sol['stimulation_amplitude']:.4f}\n")
                 f.write(f"  Objectives: {sol['objectives']}\n")
@@ -1833,10 +1838,18 @@ def create_optimization_report(optimization_results: Dict,
                         duration = ranked_sol.get('stimulation_duration')
                         amplitude = ranked_sol.get('stimulation_amplitude')
                         total_change = ranked_sol.get('stimulation_total_change')
+                        activation_amount = ranked_sol.get(
+                            'stimulation_activation_amount'
+                        )
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
                         if total_change is not None:
                             amplitude_text = f"total change={float(total_change):.4f}"
+                        elif activation_amount is not None:
+                            amplitude_text = (
+                                "direct activation="
+                                f"{float(activation_amount):.4f}"
+                            )
                         gt_distance = None
                         if objective_mode in ('distance_to_gt', 'classifier_patient_probability'):
                             obj_vals = ranked_sol.get('objectives')

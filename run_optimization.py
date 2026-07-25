@@ -25,6 +25,8 @@ from optimization_config import (
     OPTIMIZATION_OBJECTIVE_MODE, CLASSIFIER_MODEL_DIR, STIMULATION_MODEL,
     OPTIMIZATION_ANALYSIS_INPUT_DIR,
     STATIC_STIMULATION_EDGE_SCOPE, STIMULATION_TOTAL_CHANGE_BOUNDS,
+    STIMULATION_ACTIVATION_AMOUNT_BOUNDS,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
     STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS,
     STIMULATION_LEAK_BOUNDS, NSGA_CONFIG,
 )
@@ -423,6 +425,17 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
         print(f"Static edge scope: {STATIC_STIMULATION_EDGE_SCOPE}")
         print(f"Signed total-change bounds: {STIMULATION_TOTAL_CHANGE_BOUNDS}")
         print("Decision variables per fixed band: node, total_change")
+    elif STIMULATION_MODEL == "adjacency_activation":
+        print(
+            "Adjacency activation neighbor scale: "
+            f"{ADJACENCY_ACTIVATION_NEIGHBOR_SCALE}"
+        )
+        print(
+            "Signed direct-activation bounds: "
+            f"{STIMULATION_ACTIVATION_AMOUNT_BOUNDS}"
+        )
+        print("Decision variables per fixed band: node, activation_amount")
+        print("Duration and leak: not used")
     else:
         print(f"Duration bounds: {STIMULATION_DURATION_BOUNDS}")
         print(f"Amplitude bounds: {STIMULATION_AMPLITUDE_BOUNDS}")

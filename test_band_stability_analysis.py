@@ -182,6 +182,39 @@ class BandStabilityAnalysisTests(unittest.TestCase):
                 np.isfinite(subject_table["stimulation_total_change"]).all()
             )
 
+    def test_adjacency_activation_dashboard_uses_node_and_activation_amount(self):
+        results = _synthetic_results(n_subjects=4)
+        for band_results in results.values():
+            for result in band_results.values():
+                result["stimulation_model"] = "adjacency_activation"
+                solution = result["best_solution"]
+                solution["stimulation_model"] = "adjacency_activation"
+                solution["stimulation_activation_amount"] = solution[
+                    "stimulation_amplitude"
+                ]
+                solution["stimulation_duration"] = None
+                solution["leak"] = None
+        with tempfile.TemporaryDirectory() as directory:
+            figures = os.path.join(directory, "figures")
+            output = run_band_stability_analysis(
+                results,
+                directory,
+                figures,
+                os.path.join(directory, "report.txt"),
+                n_resamples=20,
+                random_seed=5,
+            )
+            self.assertIn(
+                "alpha_stimulation_profile_dashboard.png",
+                os.listdir(figures),
+            )
+            subject_table = pd.read_csv(output["paths"]["subject_table"])
+            self.assertTrue(
+                np.isfinite(
+                    subject_table["stimulation_activation_amount"]
+                ).all()
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
