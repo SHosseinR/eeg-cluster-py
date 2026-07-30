@@ -5,7 +5,7 @@ dataset_root = "D:/university/projects/graph-opt/paper-data/EC/set2"
 healthy_subdirectory = "HC"
 patient_subdirectory = "MDD"
 
-output_directory = "./results-adjacency-activation-signed-no-rejection-logistic/results-first-paper-coherence"
+output_directory = "./results-adjact-signed-norej-logistic/first-paper-coherence"
 optimization_output_subdirectory = "optimization"
 optimization_debug_subject = "MDD S2  EC"
 
@@ -15,14 +15,14 @@ selected_method = "coh"
 normalization = "none"
 error_policy = "raise"
 spectral_input = "band_filtered"
-n_jobs = 4
+n_jobs = 8
 
 [classification]
 source = "connectivity_edges"
 models = ["logistic_l2"]
 screen_repeats = 1
 validation_repeats = 5
-n_jobs = 4
+n_jobs = 8
 minimum_roc_auc = 0.70
 minimum_balanced_accuracy = 0.65
 maximum_brier = 0.25
@@ -35,7 +35,7 @@ adjacency_activation_neighbor_scale = 1.0
 classifier_model_directory = "data/connectivity_classifiers/models"
 patient_ranking_template = "connectivity_classifiers/classifier_patient_ranking_{band}.csv"
 patient_rejection_percent = 0
-n_jobs = 4
+n_jobs = 8
 
 # Required by the shared schema, but not objectives in classifier-probability mode.
 [optimization_measures_by_band]

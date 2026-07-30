@@ -239,6 +239,8 @@ results-signed-no-rejection/
 results-static-signed-no-rejection-logistic/
 results-static-signed-no-rejection-rbf/
 results-advanced-classifiers/
+first-paper-coherence/
+TDBRAIN-restEC-coherence/
 pipeline_timings_*.csv
 run_logs/
 *.rar
