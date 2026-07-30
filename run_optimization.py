@@ -13,7 +13,7 @@ from typing import List
 
 # Import configuration
 from config import (
-    OUTPUT_DIR, FREQUENCY_BANDS, SELECTED_METHOD
+    FREQUENCY_BANDS, SELECTED_METHOD
 )
 from optimization_config import (
     OPTIMIZATION_MEASURES, OPTIMIZATION_OUTPUT_DIR,
@@ -22,7 +22,13 @@ from optimization_config import (
     OPTIMIZATION_PER_BAND, OPTIMIZATION_MEASURES_BY_BAND,
     PATIENT_REJECTION_PERCENT, PATIENT_REJECTION_RANKING_FILE,
     PATIENT_REJECTION_PERCENT_BY_BAND, PATIENT_REJECTION_RANKING_FILE_BY_BAND,
-    OPTIMIZATION_OBJECTIVE_MODE, CLASSIFIER_MODEL_DIR
+    OPTIMIZATION_OBJECTIVE_MODE, CLASSIFIER_MODEL_DIR, STIMULATION_MODEL,
+    OPTIMIZATION_ANALYSIS_INPUT_DIR,
+    STATIC_STIMULATION_EDGE_SCOPE, STIMULATION_TOTAL_CHANGE_BOUNDS,
+    STIMULATION_ACTIVATION_AMOUNT_BOUNDS,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS,
+    STIMULATION_LEAK_BOUNDS, NSGA_CONFIG,
 )
 from classification_score.band_connectivity_classifier import load_band_bundle
 
@@ -136,7 +142,9 @@ def load_data_for_optimization():
     print("="*80)
     
     # Load connectivity matrices
-    connectivity_path = os.path.join(OUTPUT_DIR, 'data', 'connectivity_matrices.npy')
+    connectivity_path = os.path.join(
+        OPTIMIZATION_ANALYSIS_INPUT_DIR, 'data', 'connectivity_matrices.npy'
+    )
     if not os.path.exists(connectivity_path):
         raise FileNotFoundError(f"Connectivity matrices not found at: {connectivity_path}")
     
@@ -144,34 +152,45 @@ def load_data_for_optimization():
     print(f"✓ Loaded connectivity matrices")
     
     # Load network measures
-    measures_path = os.path.join(OUTPUT_DIR, 'data', 'network_measures.npy')
+    measures_path = os.path.join(
+        OPTIMIZATION_ANALYSIS_INPUT_DIR, 'data', 'network_measures.npy'
+    )
     if not os.path.exists(measures_path):
         raise FileNotFoundError(f"Network measures not found at: {measures_path}")
     
     network_measures = np.load(measures_path, allow_pickle=True).item()
     print(f"✓ Loaded network measures")
     
-    # Load raw subject data for baseline activation
-    # This should be loaded from your original data files
-    print(f"\nLoading raw EEG data for baseline activation...")
-    
-    # You need to specify your data paths
-    # Replace these with your actual paths from config
-    from config import PATIENT_DATA_PATH
-    
-    subject_data = {}
-    subject_data.update(_load_group_baseline_data(PATIENT_DATA_PATH, "Patient"))
-
-    print(f"Loaded baseline activations for {len(subject_data)} subjects")
-
-    # Get channel names (assuming all subjects have same channels)
-    first_subject = list(subject_data.values())[0]
-    saved_channel_metadata_path = os.path.join(OUTPUT_DIR, 'data', 'channel_metadata.json')
+    saved_channel_metadata_path = os.path.join(
+        OPTIMIZATION_ANALYSIS_INPUT_DIR, 'data', 'channel_metadata.json'
+    )
     channel_metadata = load_channel_metadata(saved_channel_metadata_path)
     channel_names = list(channel_metadata['channel_names'])
-    if list(first_subject['channels']) != channel_names:
-        raise ValueError("Patient baseline channel order differs from analysis metadata")
     channel_display_names = get_display_channel_names(channel_metadata, n_nodes=len(channel_names))
+
+    if STIMULATION_MODEL == "static_adjacency":
+        print("\nStatic adjacency model: raw EEG baseline loading is not required")
+        subject_data = {
+            str(subject_id): {
+                'baseline_activation': np.ones(len(channel_names), dtype=float),
+                'channels': list(channel_names),
+                'channel_names': list(channel_names),
+                'channel_display_names': list(channel_display_names),
+                'channel_metadata': channel_metadata,
+                'group': 'Patient',
+            }
+            for subject_id in connectivity_matrices.get('Patient', {})
+        }
+    else:
+        print(f"\nLoading raw EEG data for baseline activation...")
+        from config import PATIENT_DATA_PATH
+
+        subject_data = {}
+        subject_data.update(_load_group_baseline_data(PATIENT_DATA_PATH, "Patient"))
+        print(f"Loaded baseline activations for {len(subject_data)} subjects")
+        first_subject = list(subject_data.values())[0]
+        if list(first_subject['channels']) != channel_names:
+            raise ValueError("Patient baseline channel order differs from analysis metadata")
     
     print(f"✓ Number of channels: {len(channel_names)}")
     
@@ -195,7 +214,7 @@ def _get_measures_for_band(band_name: str) -> List[str]:
 
 def _format_rejection_ranking_path(path_template, band_name=None):
     return path_template.format(
-        OUTPUT_DIR=OUTPUT_DIR,
+        OUTPUT_DIR=OPTIMIZATION_ANALYSIS_INPUT_DIR,
         band=band_name,
         band_name=band_name
     )
@@ -399,6 +418,34 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
     print("\n" + "="*80)
     print("VERIFYING OPTIMIZATION REQUIREMENTS")
     print("="*80)
+    print(f"Stimulation model: {STIMULATION_MODEL}")
+    print(f"Analysis input directory: {OPTIMIZATION_ANALYSIS_INPUT_DIR}")
+    print(f"Optimization output directory: {OPTIMIZATION_OUTPUT_DIR}")
+    if STIMULATION_MODEL == "static_adjacency":
+        print(f"Static edge scope: {STATIC_STIMULATION_EDGE_SCOPE}")
+        print(f"Signed total-change bounds: {STIMULATION_TOTAL_CHANGE_BOUNDS}")
+        print("Decision variables per fixed band: node, total_change")
+    elif STIMULATION_MODEL == "adjacency_activation":
+        print(
+            "Adjacency activation neighbor scale: "
+            f"{ADJACENCY_ACTIVATION_NEIGHBOR_SCALE}"
+        )
+        print(
+            "Signed direct-activation bounds: "
+            f"{STIMULATION_ACTIVATION_AMOUNT_BOUNDS}"
+        )
+        print("Decision variables per fixed band: node, activation_amount")
+        print("Duration and leak: not used")
+    else:
+        print(f"Duration bounds: {STIMULATION_DURATION_BOUNDS}")
+        print(f"Amplitude bounds: {STIMULATION_AMPLITUDE_BOUNDS}")
+        print(f"Leak bounds: {STIMULATION_LEAK_BOUNDS}")
+    print(
+        "NSGA-II: "
+        f"population={NSGA_CONFIG['population_size']}, "
+        f"generations={NSGA_CONFIG['n_generations']}"
+    )
+    print(f"Optimization workers: {OPTIMIZATION_N_JOBS}")
     
     # Check that selected method exists
     print(f"\nSelected connectivity method: {SELECTED_METHOD}")

@@ -52,6 +52,8 @@ def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = N
             'band_name': sol.get('band_name'),
             'stimulation_duration': sol.get('stimulation_duration'),
             'stimulation_amplitude': sol.get('stimulation_amplitude'),
+            'stimulation_total_change': sol.get('stimulation_total_change'),
+            'stimulation_model': sol.get('stimulation_model'),
             'objectives': sol['objectives'],
             'distance': float(distances[idx]),
             'rank': rank,
@@ -1782,7 +1784,17 @@ def create_optimization_report(optimization_results: Dict,
                 f.write(f"  Optimal band: {band_names[sol['band']]}\n")
                 if sol.get('stimulation_duration') is not None:
                     f.write(f"  Stimulation duration: {sol['stimulation_duration']:.4f}\n")
-                if sol.get('stimulation_amplitude') is not None:
+                if sol.get('stimulation_total_change') is not None:
+                    f.write(
+                        "  Signed total adjacency change: "
+                        f"{sol['stimulation_total_change']:.4f}\n"
+                    )
+                elif sol.get('stimulation_activation_amount') is not None:
+                    f.write(
+                        "  Signed direct activation amount: "
+                        f"{sol['stimulation_activation_amount']:.4f}\n"
+                    )
+                elif sol.get('stimulation_amplitude') is not None:
                     f.write(f"  Stimulation amplitude: {sol['stimulation_amplitude']:.4f}\n")
                 f.write(f"  Objectives: {sol['objectives']}\n")
 
@@ -1825,8 +1837,19 @@ def create_optimization_report(optimization_results: Dict,
                         distance = float(ranked_sol.get('distance', 0.0))
                         duration = ranked_sol.get('stimulation_duration')
                         amplitude = ranked_sol.get('stimulation_amplitude')
+                        total_change = ranked_sol.get('stimulation_total_change')
+                        activation_amount = ranked_sol.get(
+                            'stimulation_activation_amount'
+                        )
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
+                        if total_change is not None:
+                            amplitude_text = f"total change={float(total_change):.4f}"
+                        elif activation_amount is not None:
+                            amplitude_text = (
+                                "direct activation="
+                                f"{float(activation_amount):.4f}"
+                            )
                         gt_distance = None
                         if objective_mode in ('distance_to_gt', 'classifier_patient_probability'):
                             obj_vals = ranked_sol.get('objectives')
@@ -1844,7 +1867,7 @@ def create_optimization_report(optimization_results: Dict,
                         f.write(
                             f"    {ranked_sol.get('rank', '?')}. "
                             f"Node: {node_name}, Band: {band_name}, "
-                            f"Duration: {duration_text}, Amplitude: {amplitude_text}, "
+                            f"Duration: {duration_text}, Stimulation: {amplitude_text}, "
                             f"Strength: {strength:.3f}, Distance: {distance_text}, "
                             f"Objectives: {ranked_sol.get('objectives')}\n"
                         )

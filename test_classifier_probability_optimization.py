@@ -56,6 +56,7 @@ def _optimizer(bundle: BandConnectivityClassifier) -> EEGOptimizer:
         fixed_band_name="alpha",
         objective_mode="classifier_patient_probability",
         classifier_bundle=bundle,
+        stimulation_model="state_space",
     )
 
 
@@ -99,6 +100,48 @@ class ClassifierProbabilityOptimizationTests(unittest.TestCase):
         bundle.band = "beta"
         with self.assertRaisesRegex(ValueError, "does not match"):
             _optimizer(bundle)
+
+    def test_static_model_bypasses_dynamics_and_uses_five_classifier_constraints(self):
+        optimizer = _optimizer(_bundle())
+        optimizer.stimulation_model = "static_adjacency"
+        with patch("eeg_optimization.run_full_simulation") as simulation:
+            objectives, values, details = optimizer._evaluate_solution_details(
+                "P1", np.ones(3), 0, 1, None, -0.2, None
+            )
+        simulation.assert_not_called()
+        np.testing.assert_allclose(objectives, values)
+        self.assertEqual(details["constraint_values"].shape, (5,))
+        self.assertEqual(details["stimulation_total_change"], -0.2)
+        self.assertIsNone(details["raw_activation_ratio_min"])
+
+    def test_adjacency_activation_bypasses_dynamics_but_keeps_plasticity(self):
+        optimizer = _optimizer(_bundle())
+        optimizer.stimulation_model = "adjacency_activation"
+        optimizer.adjacency_activation_neighbor_scale = 0.5
+        original = optimizer.connectivity_matrices["Patient"]["P1"]["coh"]["alpha"]
+        with (
+            patch("eeg_optimization.run_full_simulation") as simulation,
+            patch(
+                "eeg_optimization.compute_plasticity_effect",
+                return_value=original,
+            ) as plasticity,
+        ):
+            objectives, values, details = optimizer._evaluate_solution_details(
+                "P1",
+                np.array([0.5, 0.6, 0.7]),
+                0,
+                1,
+                None,
+                0.1,
+                None,
+            )
+        simulation.assert_not_called()
+        plasticity.assert_called_once()
+        np.testing.assert_allclose(objectives, values)
+        self.assertEqual(details["constraint_values"].shape, (7,))
+        self.assertEqual(details["stimulation_activation_amount"], 0.1)
+        self.assertEqual(details["adjacency_activation_neighbor_scale"], 0.5)
+        self.assertIsNotNone(details["raw_activation_ratio_min"])
 
 
 if __name__ == "__main__":

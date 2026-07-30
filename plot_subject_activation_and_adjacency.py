@@ -1,8 +1,8 @@
-"""
-Plot activation change (time series) and adjacency before/after for one subject.
+"""Plot one subject's configured stimulation effect and adjacency change.
 
-Uses optimization results and stored connectivity matrices. Does not re-run
-optimization.
+State-space and adjacency-activation results produce activation plots.
+Direct static-adjacency results produce selected-edge change plots instead.
+Optimization is never rerun.
 """
 import argparse
 import os
@@ -13,18 +13,25 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from config import OUTPUT_DIR, SELECTED_METHOD
+from config import SELECTED_METHOD
 from optimization_config import (
     OPTIMIZATION_OUTPUT_DIR,
     OPTIMIZATION_RESULTS_FILE,
     OPTIMIZATION_FIGURES_DIR,
+    OPTIMIZATION_ANALYSIS_INPUT_DIR,
     SIMULATION_CONFIG,
     PLASTICITY_CONFIG,
     OPTIMIZATION_DEBUG_SUBJECT,
+    STATIC_STIMULATION_EDGE_SCOPE,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
 from channel_metadata import get_display_channel_names
+from stimulation_models import (
+    apply_static_adjacency_stimulation,
+    run_adjacency_activation_stimulation,
+)
 
 
 def _load_pickle_dict(path: str) -> Dict:
@@ -119,6 +126,11 @@ def main() -> None:
         help="Optional override path to optimization_results.npy",
     )
     parser.add_argument(
+        "--connectivity",
+        default=None,
+        help="Optional override path to connectivity_matrices.npy",
+    )
+    parser.add_argument(
         "--band",
         default=None,
         help="Optional band name or index when results contain multiple bands.",
@@ -161,36 +173,15 @@ def main() -> None:
     if best_solution is None:
         raise RuntimeError(f"No best_solution for subject: {subject_id}")
 
-    baseline_activation = results.get("baseline_activation")
-    print(f'{baseline_activation=}')
-    # min_nonzero = baseline_activation[baseline_activation > 0].min()
-    # baseline_activation[baseline_activation == 0] = min_nonzero
-    # print(f'{baseline_activation=}')
-
-    if baseline_activation is None:
-        raise RuntimeError(f"Missing baseline_activation for subject: {subject_id}")
-
     band_names = results.get("band_names")
-    exact_channel_names = results.get("channel_names")
-    n_nodes = len(exact_channel_names) if exact_channel_names is not None else len(baseline_activation)
-    channel_names = get_display_channel_names(results, n_nodes=n_nodes)
     if band_names is None:
         raise RuntimeError("Missing band_names in results.")
 
     band_idx = int(best_solution["band"])
     band_name = best_solution.get("band_name") or band_names[band_idx]
-
-    duration = best_solution.get("stimulation_duration")
-    amplitude = best_solution.get("stimulation_amplitude")
-    leak = best_solution.get("leak")
-    if duration is None:
-        duration = float(SIMULATION_CONFIG["stimulation_duration"])
-    if amplitude is None:
-        amplitude = float(SIMULATION_CONFIG["stimulation_amplitude"])
-    if leak is None:
-        leak = float(SIMULATION_CONFIG.get("leak", 0.0))
-
-    connectivity_path = os.path.join(OUTPUT_DIR, "data", "connectivity_matrices.npy")
+    connectivity_path = args.connectivity or os.path.join(
+        OPTIMIZATION_ANALYSIS_INPUT_DIR, "data", "connectivity_matrices.npy"
+    )
     if not os.path.exists(connectivity_path):
         raise FileNotFoundError(f"Connectivity matrices not found: {connectivity_path}")
 
@@ -202,31 +193,95 @@ def main() -> None:
             f"Connectivity not found for {subject_id}, {SELECTED_METHOD}, {band_name}"
         ) from exc
 
-    sim_results = run_full_simulation(
-        adjacency_matrix=original_matrix,
-        baseline_activation=np.array(baseline_activation, dtype=float),
-        stimulation_node=int(best_solution["node"]),
-        stimulation_duration=float(duration),
-        stimulation_amplitude=float(amplitude),
-        dt=float(SIMULATION_CONFIG["dt"]),
-        stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
-        leak=float(leak),
-    )
+    n_nodes = int(original_matrix.shape[0])
+    channel_names = get_display_channel_names(results, n_nodes=n_nodes)
     node_idx = int(best_solution["node"])
     node_label = channel_names[node_idx] if node_idx < len(channel_names) else f"Node {node_idx}"
     print(f'{best_solution["node"]=} ({node_label})')
-
-    if PLASTICITY_CONFIG.get("plasticity_enabled", True):
-        updated_matrix = compute_plasticity_effect(
-            adjacency_matrix=original_matrix,
-            activation_ratios=sim_results["activation_ratios"],
-            normalize=False,
-            scaling=float(PLASTICITY_CONFIG.get("plasticity_scaling", 1.0)),
+    stimulation_model = str(
+        best_solution.get(
+            "stimulation_model",
+            results.get("stimulation_model", "state_space"),
         )
-        # print(f'{original_matrix=}')
-        # print(f'{updated_matrix=}')
+    ).strip().lower()
+    is_static = stimulation_model == "static_adjacency"
+    is_adjacency_activation = stimulation_model == "adjacency_activation"
+
+    if is_static:
+        total_change = best_solution.get(
+            "stimulation_total_change",
+            best_solution.get("stimulation_amplitude"),
+        )
+        if total_change is None:
+            raise RuntimeError("Static solution is missing stimulation_total_change")
+        edge_scope = str(
+            results.get("static_edge_scope") or STATIC_STIMULATION_EDGE_SCOPE
+        )
+        updated_matrix, static_details = apply_static_adjacency_stimulation(
+            original_matrix,
+            node_idx,
+            float(total_change),
+            edge_scope=edge_scope,
+        )
+        print(
+            "Static adjacency change: "
+            f"requested={float(total_change):.6g}, "
+            f"realized_l1={static_details['realized_total_change_l1']:.6g}, "
+            f"scope={edge_scope}"
+        )
+        sim_results = None
     else:
-        updated_matrix = original_matrix
+        baseline_activation = results.get("baseline_activation")
+        if baseline_activation is None:
+            raise RuntimeError(f"Missing baseline_activation for subject: {subject_id}")
+        amplitude = best_solution.get("stimulation_amplitude")
+        if amplitude is None:
+            amplitude = float(SIMULATION_CONFIG["stimulation_amplitude"])
+        if is_adjacency_activation:
+            neighbor_scale = results.get(
+                "adjacency_activation_neighbor_scale",
+                ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+            )
+            sim_results = run_adjacency_activation_stimulation(
+                adjacency_matrix=original_matrix,
+                baseline_activation=np.array(baseline_activation, dtype=float),
+                stimulation_node=node_idx,
+                stimulation_amount=float(amplitude),
+                neighbor_scale=float(neighbor_scale),
+                stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+            )
+            print(
+                "Adjacency activation: "
+                f"direct={float(amplitude):.6g}, "
+                f"neighbor_scale={float(neighbor_scale):.6g}, "
+                "orientation=column"
+            )
+        else:
+            duration = best_solution.get("stimulation_duration")
+            leak = best_solution.get("leak")
+            if duration is None:
+                duration = float(SIMULATION_CONFIG["stimulation_duration"])
+            if leak is None:
+                leak = float(SIMULATION_CONFIG.get("leak", 0.0))
+            sim_results = run_full_simulation(
+                adjacency_matrix=original_matrix,
+                baseline_activation=np.array(baseline_activation, dtype=float),
+                stimulation_node=node_idx,
+                stimulation_duration=float(duration),
+                stimulation_amplitude=float(amplitude),
+                dt=float(SIMULATION_CONFIG["dt"]),
+                stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+                leak=float(leak),
+            )
+        if PLASTICITY_CONFIG.get("plasticity_enabled", True):
+            updated_matrix = compute_plasticity_effect(
+                adjacency_matrix=original_matrix,
+                activation_ratios=sim_results["activation_ratios"],
+                normalize=False,
+                scaling=float(PLASTICITY_CONFIG.get("plasticity_scaling", 1.0)),
+            )
+        else:
+            updated_matrix = original_matrix
 
     safe_subject = "".join(
         character if character.isalnum() or character in ".-_" else "_"
@@ -237,63 +292,197 @@ def main() -> None:
     )
     os.makedirs(output_dir, exist_ok=True)
 
-    # Activation change plot (time series)
-    trajectory = sim_results["trajectory"]
-    baseline = np.array(baseline_activation, dtype=float).reshape(-1, 1)
-    delta = trajectory - baseline
-    time = np.arange(trajectory.shape[1]) * float(SIMULATION_CONFIG["dt"])
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    for idx in range(delta.shape[0]):
-        label = channel_names[idx] if idx < len(channel_names) else f"Ch{idx}"
-        ax.plot(time, delta[idx, :], linewidth=1.0, alpha=0.8, label=label)
-
-    ax.set_title(
-        f"Activation Change Over Time - {subject_id} ({band_name}, node {node_label})"
-    )
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Activation change (x - baseline)")
-    ax.grid(alpha=0.3)
-
-    if not args.no_legend and delta.shape[0] <= 25:
-        ax.legend(loc="upper right", fontsize=8, ncol=2)
-
     file_tag = f"{subject_id}_{band_name}" if band_name else subject_id
-    activation_path = os.path.join(output_dir, f"{file_tag}_activation_change.png")
-    fig.tight_layout()
-    fig.savefig(activation_path, dpi=300, bbox_inches="tight")
-    print(f"Saved activation change plot to: {activation_path}")
+    if is_static:
+        matrix_delta = updated_matrix - original_matrix
+        fig, ax = plt.subplots(figsize=(12, 5))
+        x = np.arange(n_nodes)
+        outgoing = matrix_delta[node_idx, :]
+        incoming = matrix_delta[:, node_idx]
+        if edge_scope == "outgoing":
+            ax.bar(x, outgoing, width=0.7, label="Outgoing")
+        elif edge_scope == "incoming":
+            ax.bar(x, incoming, width=0.7, label="Incoming")
+        elif np.allclose(incoming, outgoing):
+            ax.bar(x, outgoing, width=0.7, label="Incident (symmetric)")
+        else:
+            ax.bar(x - 0.18, outgoing, width=0.36, label="Outgoing")
+            ax.bar(x + 0.18, incoming, width=0.36, label="Incoming")
+        ax.axhline(0.0, color="black", linewidth=1)
+        ax.set_title(
+            f"Static Edge Changes - {subject_id} ({band_name}, node {node_label})"
+        )
+        ax.set_xlabel("Connected electrode")
+        ax.set_ylabel("Adjacency-weight change")
+        ax.set_xticks(x)
+        ax.set_xticklabels(channel_names, rotation=45, ha="right", fontsize=8)
+        ax.grid(axis="y", alpha=0.3)
+        ax.legend()
+        edge_change_path = os.path.join(output_dir, f"{file_tag}_edge_change.png")
+        fig.tight_layout()
+        fig.savefig(edge_change_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved static edge-change plot to: {edge_change_path}")
 
-    # Activation before/after heatmap
-    final_state = np.array(sim_results["final_state"], dtype=float)
-    baseline_vec = np.array(baseline_activation, dtype=float)
-    activation_matrix = np.vstack([baseline_vec, final_state])
-    act_vmin = float(np.min(activation_matrix))
-    act_vmax = float(np.max(activation_matrix))
+        if edge_scope == "incoming":
+            before_values = original_matrix[:, node_idx]
+            after_values = updated_matrix[:, node_idx]
+            change_values = incoming
+            profile_labels = channel_names
+        elif edge_scope == "outgoing" or np.allclose(incoming, outgoing):
+            before_values = original_matrix[node_idx, :]
+            after_values = updated_matrix[node_idx, :]
+            change_values = outgoing
+            profile_labels = channel_names
+        else:
+            before_values = np.concatenate(
+                [original_matrix[node_idx, :], original_matrix[:, node_idx]]
+            )
+            after_values = np.concatenate(
+                [updated_matrix[node_idx, :], updated_matrix[:, node_idx]]
+            )
+            change_values = np.concatenate([outgoing, incoming])
+            profile_labels = [
+                *[f"out:{label}" for label in channel_names],
+                *[f"in:{label}" for label in channel_names],
+            ]
+        before_after = np.vstack([before_values, after_values])
+        change_profile = change_values.reshape(1, -1)
+        n_profile_edges = len(profile_labels)
+        fig, axes = plt.subplots(
+            2,
+            1,
+            figsize=(12, 4.8),
+            height_ratios=(2, 1),
+            constrained_layout=True,
+        )
+        profile_min = float(np.min(before_after))
+        profile_max = float(np.max(before_after))
+        profile_image = axes[0].imshow(
+            before_after,
+            cmap="viridis",
+            vmin=profile_min,
+            vmax=profile_max,
+            aspect="auto",
+        )
+        axes[0].set_title(f"Stimulated-Node Edge Profile - {subject_id}")
+        axes[0].set_yticks([0, 1])
+        axes[0].set_yticklabels(["Before", "After"])
+        axes[0].set_xticks([])
+        fig.colorbar(profile_image, ax=axes[0], shrink=0.9, label="Adjacency weight")
 
-    fig, ax = plt.subplots(figsize=(12, 3))
-    im = ax.imshow(activation_matrix, cmap="viridis", vmin=act_vmin, vmax=act_vmax, aspect="auto")
-    ax.set_title(f"Electrode Activations (Before/After) - {subject_id}")
-    ax.set_yticks([0, 1])
-    ax.set_yticklabels(["Before", "After"])
-    ax.set_xticks(np.arange(len(channel_names)))
-    ax.set_xticklabels(channel_names, rotation=45, ha="right", fontsize=8)
-    fig.colorbar(im, ax=ax, shrink=0.9)
-    fig.tight_layout()
+        change_limit = max(
+            float(np.max(np.abs(change_profile))),
+            np.finfo(float).eps,
+        )
+        change_image = axes[1].imshow(
+            change_profile,
+            cmap="coolwarm",
+            vmin=-change_limit,
+            vmax=change_limit,
+            aspect="auto",
+        )
+        axes[1].set_yticks([0])
+        axes[1].set_yticklabels(["Change"])
+        axes[1].set_xticks(np.arange(n_profile_edges))
+        axes[1].set_xticklabels(
+            profile_labels, rotation=45, ha="right", fontsize=8
+        )
+        fig.colorbar(
+            change_image,
+            ax=axes[1],
+            shrink=0.9,
+            label="Weight change",
+        )
+        edge_heatmap_path = os.path.join(
+            output_dir, f"{file_tag}_edge_profile_heatmap.png"
+        )
+        fig.savefig(edge_heatmap_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved static edge-profile heatmap to: {edge_heatmap_path}")
+    else:
+        trajectory = sim_results["trajectory"]
+        if trajectory is None:
+            delta = np.asarray(sim_results["activation_change"], dtype=float)
+            fig, ax = plt.subplots(figsize=(12, 6))
+            x = np.arange(delta.size)
+            colors = [
+                "tab:red" if index == node_idx else "tab:blue"
+                for index in range(delta.size)
+            ]
+            ax.bar(x, delta, color=colors, alpha=0.85)
+            ax.axhline(0.0, color="black", linewidth=1)
+            ax.set_xticks(x)
+            ax.set_xticklabels(
+                channel_names, rotation=45, ha="right", fontsize=8
+            )
+            ax.set_title(
+                f"Direct + One-Hop Activation Change - {subject_id} "
+                f"({band_name}, node {node_label})"
+            )
+            ax.set_xlabel("Electrode")
+            ax.set_ylabel("Final activation change")
+            ax.grid(axis="y", alpha=0.3)
+        else:
+            baseline = np.array(baseline_activation, dtype=float).reshape(-1, 1)
+            delta = trajectory - baseline
+            time = np.arange(trajectory.shape[1]) * float(SIMULATION_CONFIG["dt"])
 
-    # Keep generated paths below the traditional Windows MAX_PATH limit.  The
-    # experiment-specific optimization directory is already deliberately
-    # descriptive, so long figure suffixes can otherwise make an ordinary run
-    # fail after the expensive optimization has completed.
-    activation_heatmap_path = os.path.join(output_dir, f"{file_tag}_act_heatmap.png")
-    fig.savefig(activation_heatmap_path, dpi=300, bbox_inches="tight")
-    print(f"Saved activation heatmap to: {activation_heatmap_path}")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            for idx in range(delta.shape[0]):
+                label = channel_names[idx] if idx < len(channel_names) else f"Ch{idx}"
+                ax.plot(time, delta[idx, :], linewidth=1.0, alpha=0.8, label=label)
+            ax.set_title(
+                f"Activation Change Over Time - {subject_id} "
+                f"({band_name}, node {node_label})"
+            )
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Activation change (x - baseline)")
+            ax.grid(alpha=0.3)
+            if not args.no_legend and delta.shape[0] <= 25:
+                ax.legend(loc="upper right", fontsize=8, ncol=2)
+        activation_path = os.path.join(
+            output_dir, f"{file_tag}_activation_change.png"
+        )
+        fig.tight_layout()
+        fig.savefig(activation_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved activation change plot to: {activation_path}")
+
+        final_state = np.array(sim_results["final_state"], dtype=float)
+        baseline_vec = np.array(baseline_activation, dtype=float)
+        activation_matrix = np.vstack([baseline_vec, final_state])
+        act_vmin = float(np.min(activation_matrix))
+        act_vmax = float(np.max(activation_matrix))
+        fig, ax = plt.subplots(figsize=(12, 3))
+        im = ax.imshow(
+            activation_matrix,
+            cmap="viridis",
+            vmin=act_vmin,
+            vmax=act_vmax,
+            aspect="auto",
+        )
+        ax.set_title(f"Electrode Activations (Before/After) - {subject_id}")
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["Before", "After"])
+        ax.set_xticks(np.arange(len(channel_names)))
+        ax.set_xticklabels(channel_names, rotation=45, ha="right", fontsize=8)
+        fig.colorbar(im, ax=ax, shrink=0.9)
+        fig.tight_layout()
+        activation_heatmap_path = os.path.join(
+            output_dir, f"{file_tag}_act_heatmap.png"
+        )
+        fig.savefig(activation_heatmap_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved activation heatmap to: {activation_heatmap_path}")
 
     # Adjacency before/after plot
     vmin = float(np.min([original_matrix.min(), updated_matrix.min()]))
     vmax = float(np.max([original_matrix.max(), updated_matrix.max()]))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(
+        1, 2, figsize=(12, 5), constrained_layout=True
+    )
     im0 = axes[0].imshow(original_matrix, cmap="viridis", vmin=vmin, vmax=vmax)
     axes[0].set_title("Adjacency (Before)")
     axes[0].set_xlabel("Node")
@@ -312,11 +501,17 @@ def main() -> None:
     axes[1].set_xticklabels(channel_names, rotation=45, ha="right", fontsize=7)
     axes[1].set_yticklabels(channel_names, fontsize=7)
 
-    fig.colorbar(im1, ax=axes, shrink=0.8, pad=-0.3, fraction=0.07)
-    fig.tight_layout()
-
+    fig.colorbar(
+        im1,
+        ax=axes,
+        shrink=0.8,
+        pad=0.02,
+        fraction=0.035,
+        label="Adjacency weight",
+    )
     adjacency_path = os.path.join(output_dir, f"{file_tag}_adj_compare.png")
     fig.savefig(adjacency_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
     print(f"Saved adjacency comparison to: {adjacency_path}")
 
 

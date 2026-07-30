@@ -33,6 +33,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.svm import LinearSVC, SVC
 
+from classification_score.neural_graph_models import TorchGraphClassifier
+
 
 RANDOM_STATE = 42
 
@@ -75,6 +77,17 @@ def _tree_pipeline(classifier: BaseEstimator) -> Pipeline:
     )
 
 
+def _neural_graph_pipeline(classifier: BaseEstimator) -> Pipeline:
+    """Preserve the complete triangular edge layout required by graph models."""
+
+    return Pipeline(
+        [
+            ("impute", SimpleImputer(strategy="median", keep_empty_features=True)),
+            ("clf", classifier),
+        ]
+    )
+
+
 def model_specs(n_features: int, mode: str = "quick") -> dict[str, ModelSpec]:
     """Return all compared probability-capable model families and inner grids."""
 
@@ -89,10 +102,14 @@ def model_specs(n_features: int, mode: str = "quick") -> dict[str, ModelSpec]:
         c_values = [0.03, 0.3, 3.0]
         tree_leaves = [2, 6]
         tree_estimators = 150
+        neural_epochs = 160
+        neural_patience = 20
     else:
         c_values = [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
         tree_leaves = [1, 2, 4, 8]
         tree_estimators = 500
+        neural_epochs = 300
+        neural_patience = 35
 
     return {
         "dummy_prior": ModelSpec(DummyClassifier(strategy="prior"), {}),
@@ -216,6 +233,72 @@ def model_specs(n_features: int, mode: str = "quick") -> dict[str, ModelSpec]:
                 if mode == "quick"
                 else [0.0, 0.1, 1.0, 3.0, 10.0],
             },
+        ),
+        # Fixed, predeclared neural hyperparameters avoid selecting a large
+        # deep-learning search space on this modest subject cohort. Each fit
+        # still uses a stratified fold-internal validation split for stopping
+        # and probability temperature scaling.
+        "gcn": ModelSpec(
+            _neural_graph_pipeline(
+                TorchGraphClassifier(
+                    model_name="gcn",
+                    hidden_dim=24,
+                    dropout=0.35,
+                    learning_rate=1e-3,
+                    weight_decay=1e-3,
+                    max_epochs=neural_epochs,
+                    patience=neural_patience,
+                    random_state=RANDOM_STATE,
+                )
+            ),
+            {},
+        ),
+        "brainnetcnn": ModelSpec(
+            _neural_graph_pipeline(
+                TorchGraphClassifier(
+                    model_name="brainnetcnn",
+                    hidden_dim=16,
+                    dropout=0.35,
+                    learning_rate=7e-4,
+                    weight_decay=1e-3,
+                    max_epochs=neural_epochs,
+                    patience=neural_patience,
+                    random_state=RANDOM_STATE,
+                )
+            ),
+            {},
+        ),
+        "gcn_3band": ModelSpec(
+            _neural_graph_pipeline(
+                TorchGraphClassifier(
+                    model_name="gcn",
+                    n_bands=3,
+                    hidden_dim=24,
+                    dropout=0.35,
+                    learning_rate=1e-3,
+                    weight_decay=1e-3,
+                    max_epochs=neural_epochs,
+                    patience=neural_patience,
+                    random_state=RANDOM_STATE,
+                )
+            ),
+            {},
+        ),
+        "brainnetcnn_3band": ModelSpec(
+            _neural_graph_pipeline(
+                TorchGraphClassifier(
+                    model_name="brainnetcnn",
+                    n_bands=3,
+                    hidden_dim=16,
+                    dropout=0.35,
+                    learning_rate=7e-4,
+                    weight_decay=1e-3,
+                    max_epochs=neural_epochs,
+                    patience=neural_patience,
+                    random_state=RANDOM_STATE,
+                )
+            ),
+            {},
         ),
     }
 

@@ -11,11 +11,20 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from optimization_config import (
     OPTIMIZATION_MEASURES, NSGA_CONFIG, SIMULATION_CONFIG, PLASTICITY_CONFIG, OPTIMIZATION_TOP_K,
     STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, STIMULATION_LEAK_BOUNDS,
+    STIMULATION_MODEL, STIMULATION_TOTAL_CHANGE_BOUNDS,
+    STIMULATION_ACTIVATION_AMOUNT_BOUNDS, STATIC_STIMULATION_EDGE_SCOPE,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
     ACTIVATION_RATIO_FEASIBILITY_BOUNDS, OPTIMIZATION_MODE,
     GRID_USE_PARETO_ONLY, OPTIMIZATION_OBJECTIVE_MODE
 )
 from state_space_simulation import run_full_simulation
 from plasticity import compute_plasticity_effect
+from stimulation_models import (
+    DYNAMICS_FREE_STIMULATION_MODELS,
+    STIMULATION_MODELS,
+    apply_static_adjacency_stimulation,
+    run_adjacency_activation_stimulation,
+)
 from classification_score.band_connectivity_classifier import (
     BandConnectivityClassifier,
     matrix_change_rms,
@@ -83,7 +92,10 @@ class EEGOptimizer:
                  classifier_bundle: Optional[BandConnectivityClassifier] = None,
                  nsga_config: Dict = None,
                  simulation_config: Dict = None,
-                 plasticity_config: Dict = None):
+                 plasticity_config: Dict = None,
+                 stimulation_model: str = None,
+                 static_edge_scope: str = None,
+                 adjacency_activation_neighbor_scale: float = None):
         """
         Initialize EEG optimizer.
         
@@ -172,6 +184,31 @@ class EEGOptimizer:
         self.nsga_config = nsga_config or NSGA_CONFIG
         self.simulation_config = simulation_config or SIMULATION_CONFIG
         self.plasticity_config = plasticity_config or PLASTICITY_CONFIG
+        self.stimulation_model = (stimulation_model or STIMULATION_MODEL).strip().lower()
+        if self.stimulation_model not in STIMULATION_MODELS:
+            raise ValueError(
+                f"stimulation_model must be one of {sorted(STIMULATION_MODELS)}"
+            )
+        self.static_edge_scope = (
+            static_edge_scope or STATIC_STIMULATION_EDGE_SCOPE
+        ).strip().lower()
+        if self.static_edge_scope not in {"incident", "incoming", "outgoing"}:
+            raise ValueError(
+                "static_edge_scope must be 'incident', 'incoming', or 'outgoing'"
+            )
+        self.adjacency_activation_neighbor_scale = float(
+            ADJACENCY_ACTIVATION_NEIGHBOR_SCALE
+            if adjacency_activation_neighbor_scale is None
+            else adjacency_activation_neighbor_scale
+        )
+        if (
+            not np.isfinite(self.adjacency_activation_neighbor_scale)
+            or self.adjacency_activation_neighbor_scale < 0.0
+        ):
+            raise ValueError(
+                "adjacency_activation_neighbor_scale must be finite and "
+                "non-negative"
+            )
         ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
         if (
             not np.isfinite(ratio_lower)
@@ -433,7 +470,7 @@ class EEGOptimizer:
         stimulation_amplitude: float = None,
         stimulation_leak: float = None
     ) -> Tuple[np.ndarray, np.ndarray, Dict]:
-        """Evaluate objectives, raw measures, and trajectory feasibility."""
+        """Evaluate objectives, raw measures, and stimulation feasibility."""
         from network_measures import measure_functions
 
         band_name = self.band_names[band_idx]
@@ -447,46 +484,97 @@ class EEGOptimizer:
 
         original_matrix = self.connectivity_matrices['Patient'][subject_id][self.selected_method][band_name]
 
-        sim_results = run_full_simulation(
-            adjacency_matrix=original_matrix,
-            baseline_activation=baseline_activation,
-            stimulation_node=node,
-            stimulation_duration=stimulation_duration,
-            stimulation_amplitude=stimulation_amplitude,
-            dt=self.simulation_config['dt'],
-            stability_constant=self.simulation_config['stability_constant'],
-            leak=stimulation_leak,
-            return_trajectory=False,
-        )
-
-        raw_ratios = np.asarray(sim_results['raw_activation_ratios'], dtype=float)
-        ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
-        constraint_values = [
-            float(ratio_lower) - float(np.min(raw_ratios)),
-            float(np.max(raw_ratios)) - float(ratio_upper),
-        ]
-        feasibility_details = {
-            'raw_activation_ratio_min': float(np.min(raw_ratios)),
-            'raw_activation_ratio_max': float(np.max(raw_ratios)),
-            'stimulation_polarity': (
-                'suppression' if stimulation_amplitude < -1e-10 else
-                'enhancement' if stimulation_amplitude > 1e-10 else
-                'zero'
-            ),
-        }
-
-        if self.plasticity_config['plasticity_enabled']:
-            updated_matrix = compute_plasticity_effect(
-                adjacency_matrix=original_matrix,
-                activation_ratios=sim_results['activation_ratios'],
-                # The classifier was fitted to natural coherence values.  A
-                # candidate-wise min-max transform would change its feature
-                # space and make its probability meaningless.
-                normalize=self.objective_mode != "classifier_patient_probability",
-                scaling=self.plasticity_config['plasticity_scaling']
+        if self.stimulation_model == "static_adjacency":
+            updated_matrix, static_details = apply_static_adjacency_stimulation(
+                original_matrix,
+                node,
+                stimulation_amplitude,
+                edge_scope=self.static_edge_scope,
             )
+            constraint_values = []
+            feasibility_details = {
+                **static_details,
+                'raw_activation_ratio_min': None,
+                'raw_activation_ratio_max': None,
+                'stimulation_total_change': stimulation_amplitude,
+                'stimulation_polarity': (
+                    'suppression' if stimulation_amplitude < -1e-10 else
+                    'enhancement' if stimulation_amplitude > 1e-10 else
+                    'zero'
+                ),
+            }
         else:
-            updated_matrix = original_matrix
+            if self.stimulation_model == "adjacency_activation":
+                sim_results = run_adjacency_activation_stimulation(
+                    adjacency_matrix=original_matrix,
+                    baseline_activation=baseline_activation,
+                    stimulation_node=node,
+                    stimulation_amount=stimulation_amplitude,
+                    neighbor_scale=self.adjacency_activation_neighbor_scale,
+                    stability_constant=self.simulation_config['stability_constant'],
+                )
+            else:
+                sim_results = run_full_simulation(
+                    adjacency_matrix=original_matrix,
+                    baseline_activation=baseline_activation,
+                    stimulation_node=node,
+                    stimulation_duration=stimulation_duration,
+                    stimulation_amplitude=stimulation_amplitude,
+                    dt=self.simulation_config['dt'],
+                    stability_constant=self.simulation_config['stability_constant'],
+                    leak=stimulation_leak,
+                    return_trajectory=False,
+                )
+
+            raw_ratios = np.asarray(sim_results['raw_activation_ratios'], dtype=float)
+            ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
+            constraint_values = [
+                float(ratio_lower) - float(np.min(raw_ratios)),
+                float(np.max(raw_ratios)) - float(ratio_upper),
+            ]
+            feasibility_details = {
+                'raw_activation_ratio_min': float(np.min(raw_ratios)),
+                'raw_activation_ratio_max': float(np.max(raw_ratios)),
+                'stimulation_polarity': (
+                    'suppression' if stimulation_amplitude < -1e-10 else
+                    'enhancement' if stimulation_amplitude > 1e-10 else
+                    'zero'
+                ),
+            }
+            if self.stimulation_model == "adjacency_activation":
+                feasibility_details.update({
+                    'stimulation_activation_amount': stimulation_amplitude,
+                    'adjacency_activation_neighbor_scale': (
+                        self.adjacency_activation_neighbor_scale
+                    ),
+                    'adjacency_activation_orientation': (
+                        sim_results['adjacency_activation_orientation']
+                    ),
+                    'direct_activation_change': (
+                        sim_results['direct_activation_change']
+                    ),
+                    'neighbor_activation_change_l1': (
+                        sim_results['neighbor_activation_change_l1']
+                    ),
+                    'total_activation_change_l1': (
+                        sim_results['total_activation_change_l1']
+                    ),
+                    'changed_activation_nodes': (
+                        sim_results['changed_activation_nodes']
+                    ),
+                })
+
+            if self.plasticity_config['plasticity_enabled']:
+                updated_matrix = compute_plasticity_effect(
+                    adjacency_matrix=original_matrix,
+                    activation_ratios=sim_results['activation_ratios'],
+                    # The classifier was fitted to natural coherence values. A
+                    # candidate-wise min-max transform would invalidate it.
+                    normalize=self.objective_mode != "classifier_patient_probability",
+                    scaling=self.plasticity_config['plasticity_scaling']
+                )
+            else:
+                updated_matrix = original_matrix
 
         if self.objective_mode == "classifier_patient_probability":
             edges = vectorize_band_matrix(updated_matrix)[0]
@@ -630,15 +718,28 @@ class EEGOptimizer:
         history : list (empty)
         solutions : list of dict
         """
-        duration = float(self.simulation_config['stimulation_duration'])
         amplitude = float(self.simulation_config['stimulation_amplitude'])
-        leak = float(self.simulation_config.get('leak', 0.0))
+        if self.stimulation_model in DYNAMICS_FREE_STIMULATION_MODELS:
+            duration = None
+            leak = None
+        else:
+            duration = float(self.simulation_config['stimulation_duration'])
+            leak = float(self.simulation_config.get('leak', 0.0))
 
         if verbose:
             print("Using discrete grid search over node x band")
-            print(f"  Fixed stimulation duration: {duration}")
-            print(f"  Fixed stimulation amplitude: {amplitude}")
-            print(f"  Fixed leak: {leak}")
+            if self.stimulation_model == "static_adjacency":
+                print(f"  Fixed total adjacency change: {amplitude}")
+            elif self.stimulation_model == "adjacency_activation":
+                print(f"  Fixed direct activation amount: {amplitude}")
+                print(
+                    "  Adjacency neighbor scale: "
+                    f"{self.adjacency_activation_neighbor_scale}"
+                )
+            else:
+                print(f"  Fixed stimulation duration: {duration}")
+                print(f"  Fixed stimulation amplitude: {amplitude}")
+                print(f"  Fixed leak: {leak}")
 
         solutions = []
         for node in range(self.n_nodes):
@@ -655,6 +756,17 @@ class EEGOptimizer:
                     'band_name': self.band_names[global_band_idx],
                     'stimulation_duration': duration,
                     'stimulation_amplitude': amplitude,
+                    'stimulation_total_change': (
+                        amplitude
+                        if self.stimulation_model == "static_adjacency"
+                        else None
+                    ),
+                    'stimulation_activation_amount': (
+                        amplitude
+                        if self.stimulation_model == "adjacency_activation"
+                        else None
+                    ),
+                    'stimulation_model': self.stimulation_model,
                     'leak': leak,
                     'objectives': objectives,
                     'measure_values': measure_values
@@ -711,6 +823,11 @@ class EEGOptimizer:
                 'band_name': sol['band_name'],
                 'stimulation_duration': sol.get('stimulation_duration'),
                 'stimulation_amplitude': sol.get('stimulation_amplitude'),
+                'stimulation_total_change': sol.get('stimulation_total_change'),
+                'stimulation_activation_amount': sol.get(
+                    'stimulation_activation_amount'
+                ),
+                'stimulation_model': sol.get('stimulation_model', self.stimulation_model),
                 'leak': sol.get('leak'),
                 'objectives': sol['objectives'],
                 'measure_values': sol.get('measure_values'),
@@ -793,10 +910,28 @@ class EEGOptimizer:
                 band_names=self.band_names,
                 evaluate_func=evaluate_func,
                 n_objectives=len(self.optimization_measures),
-                n_constraints=(7 if self.objective_mode == "classifier_patient_probability" else 2),
-                activation_ratio_bounds=ACTIVATION_RATIO_FEASIBILITY_BOUNDS,
+                n_constraints=(
+                    5 if (
+                        self.stimulation_model == "static_adjacency"
+                        and self.objective_mode == "classifier_patient_probability"
+                    ) else
+                    0 if self.stimulation_model == "static_adjacency" else
+                    7 if self.objective_mode == "classifier_patient_probability" else
+                    2
+                ),
+                activation_ratio_bounds=(
+                    None
+                    if self.stimulation_model == "static_adjacency"
+                    else ACTIVATION_RATIO_FEASIBILITY_BOUNDS
+                ),
                 duration_bounds=STIMULATION_DURATION_BOUNDS,
-                amplitude_bounds=STIMULATION_AMPLITUDE_BOUNDS,
+                amplitude_bounds=(
+                    STIMULATION_TOTAL_CHANGE_BOUNDS
+                    if self.stimulation_model == "static_adjacency"
+                    else STIMULATION_ACTIVATION_AMOUNT_BOUNDS
+                    if self.stimulation_model == "adjacency_activation"
+                    else STIMULATION_AMPLITUDE_BOUNDS
+                ),
                 leak_bounds=STIMULATION_LEAK_BOUNDS,
                 population_size=self.nsga_config['population_size'],
                 n_generations=self.nsga_config['n_generations'],
@@ -806,7 +941,8 @@ class EEGOptimizer:
                 mutation_eta=self.nsga_config.get('mutation_eta', 20.0),
                 seed=self.nsga_config.get('seed'),
                 # tournament_size=self.nsga_config['tournament_size']
-                fixed_band_index=self.fixed_band_index
+                fixed_band_index=self.fixed_band_index,
+                stimulation_model=self.stimulation_model,
             )
             
             # Run optimization
@@ -831,8 +967,7 @@ class EEGOptimizer:
         if best_solution is None:
             raise RuntimeError(
                 "No feasible stimulation solution was found. Adjust "
-                "STIMULATION_AMPLITUDE_BOUNDS, stimulation duration/leak bounds, "
-                "or ACTIVATION_RATIO_FEASIBILITY_BOUNDS."
+                "the configured stimulation bounds or feasibility thresholds."
             )
 
         # Rank top solutions using distance-to-ideal (strength = 1 / rank)
@@ -893,10 +1028,39 @@ class EEGOptimizer:
             'channel_metadata': self.channel_metadata,
             'optimization_mode': self.optimization_mode,
             'objective_mode': self.objective_mode,
+            'stimulation_model': self.stimulation_model,
+            'static_edge_scope': (
+                self.static_edge_scope
+                if self.stimulation_model == "static_adjacency"
+                else None
+            ),
+            'adjacency_activation_neighbor_scale': (
+                self.adjacency_activation_neighbor_scale
+                if self.stimulation_model == "adjacency_activation"
+                else None
+            ),
             'optimization_measures': list(self.optimization_measures),
             'optimization_directions': dict(self.optimization_directions),
-            'stimulation_amplitude_bounds': tuple(STIMULATION_AMPLITUDE_BOUNDS),
-            'activation_ratio_feasibility_bounds': tuple(ACTIVATION_RATIO_FEASIBILITY_BOUNDS),
+            'stimulation_amplitude_bounds': (
+                None
+                if self.stimulation_model in DYNAMICS_FREE_STIMULATION_MODELS
+                else tuple(STIMULATION_AMPLITUDE_BOUNDS)
+            ),
+            'stimulation_total_change_bounds': (
+                tuple(STIMULATION_TOTAL_CHANGE_BOUNDS)
+                if self.stimulation_model == "static_adjacency"
+                else None
+            ),
+            'stimulation_activation_amount_bounds': (
+                tuple(STIMULATION_ACTIVATION_AMOUNT_BOUNDS)
+                if self.stimulation_model == "adjacency_activation"
+                else None
+            ),
+            'activation_ratio_feasibility_bounds': (
+                None
+                if self.stimulation_model == "static_adjacency"
+                else tuple(ACTIVATION_RATIO_FEASIBILITY_BOUNDS)
+            ),
             'healthy_measure_baselines': dict(self.healthy_measure_baselines),
             'classifier_band': self.classifier_bundle.band if self.classifier_bundle else None,
             'classifier_model': self.classifier_bundle.model_name if self.classifier_bundle else None,
@@ -1099,7 +1263,10 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         classifier_bundle=classifier_bundle,
         nsga_config=NSGA_CONFIG,
         simulation_config=SIMULATION_CONFIG,
-        plasticity_config=PLASTICITY_CONFIG
+        plasticity_config=PLASTICITY_CONFIG,
+        stimulation_model=STIMULATION_MODEL,
+        static_edge_scope=STATIC_STIMULATION_EDGE_SCOPE,
+        adjacency_activation_neighbor_scale=ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
     )
     
     return optimizer

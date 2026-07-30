@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import tomllib
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,11 @@ from saved_results_utils import load_dataset_profile, load_npy_dict, ordered_ban
 
 def audit(dataset_config: str, output: str | None = None) -> Path:
     profile = load_dataset_profile(dataset_config)
+    with profile.config_path.open('rb') as stream:
+        configured = tomllib.load(stream)
+    configured_stimulation_model = str(
+        configured.get('optimization', {}).get('stimulation_model', 'state_space')
+    )
     connectivity = load_npy_dict(
         profile.data_dir / 'connectivity_matrices.npy', 'connectivity matrices'
     )
@@ -39,7 +45,24 @@ def audit(dataset_config: str, output: str | None = None) -> Path:
                 'status': 'optimized_feasible' if success else 'no_saved_feasible_solution',
                 'initial_patient_probability': float(initial[0]),
                 'optimized_patient_probability': float(final[0]),
+                'stimulation_model': solution.get(
+                    'stimulation_model',
+                    (result or {}).get(
+                        'stimulation_model',
+                        configured_stimulation_model,
+                    ),
+                ),
                 'stimulation_amplitude': float(solution.get('stimulation_amplitude', np.nan)),
+                'stimulation_total_change': (
+                    float(solution['stimulation_total_change'])
+                    if solution.get('stimulation_total_change') is not None
+                    else np.nan
+                ),
+                'stimulation_activation_amount': (
+                    float(solution['stimulation_activation_amount'])
+                    if solution.get('stimulation_activation_amount') is not None
+                    else np.nan
+                ),
                 'constraint_violation': float(solution.get('constraint_violation', np.nan)),
             })
     destination = Path(output) if output else (
