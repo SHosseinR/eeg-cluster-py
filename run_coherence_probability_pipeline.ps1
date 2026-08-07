@@ -7,7 +7,8 @@ param(
     [string]$RunOutputDir = "",
     [string]$ComparisonOutputDir = "",
     [switch]$AnalysisOnly,
-    [switch]$FiguresOnly
+    [switch]$FiguresOnly,
+    [switch]$SkipAnalysis
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,12 @@ if (-not (Test-Path -LiteralPath $Python)) {
 }
 if ($AnalysisOnly -and $FiguresOnly) {
     throw "-AnalysisOnly and -FiguresOnly cannot be used together."
+}
+if ($AnalysisOnly -and $SkipAnalysis) {
+    throw "-AnalysisOnly and -SkipAnalysis cannot be used together."
+}
+if ($FiguresOnly -and $SkipAnalysis) {
+    throw "-FiguresOnly and -SkipAnalysis cannot be used together."
 }
 $timings = [System.Collections.Generic.List[object]]::new()
 $currentDataset = ""
@@ -61,7 +68,12 @@ foreach ($datasetConfig in $DatasetConfigs) {
     $currentDataset = $datasetConfig
     $env:EEG_DATASET_CONFIG = $datasetConfig
     $env:EEG_STEP_TO_START = "1"
-    if (-not $FiguresOnly) {
+    if ($SkipAnalysis) {
+        Write-Host "`n========================================================================"
+        Write-Host "VALIDATE CACHED ANALYSIS: $datasetConfig"
+        Write-Host "========================================================================"
+        Invoke-PythonChecked "validate_cached_analysis" "validate_cached_analysis.py" "--dataset-config" $datasetConfig
+    } elseif (-not $FiguresOnly) {
         Write-Host "`n========================================================================"
         Write-Host "ANALYSIS: $datasetConfig"
         Write-Host "========================================================================"
@@ -115,5 +127,9 @@ $timingRoot = if ($RunOutputDir) {
 New-Item -ItemType Directory -Path $timingRoot -Force | Out-Null
 $timingPath = Join-Path $timingRoot "pipeline_timings_$timestamp.csv"
 $timings | Export-Csv -LiteralPath $timingPath -NoTypeInformation -Encoding UTF8
-Write-Host "`nComplete. Each profile contains analysis, band classifiers, optimization, and applicable figures."
+if ($SkipAnalysis) {
+    Write-Host "`nComplete. Cached analysis was validated and reused; optimization, audits, and figures ran."
+} else {
+    Write-Host "`nComplete. Each profile contains analysis, band classifiers, optimization, and applicable figures."
+}
 Write-Host "Runner timings: $timingPath"

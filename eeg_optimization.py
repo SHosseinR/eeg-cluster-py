@@ -14,16 +14,19 @@ from optimization_config import (
     STIMULATION_MODEL, STIMULATION_TOTAL_CHANGE_BOUNDS,
     STIMULATION_ACTIVATION_AMOUNT_BOUNDS, STATIC_STIMULATION_EDGE_SCOPE,
     ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    LOG_GAIN_BOUNDS, LOG_GAIN_NEIGHBOR_SCALE,
+    LOG_GAIN_PLASTICITY_EXPONENT, LOG_GAIN_PLASTICITY_FRACTION,
     ACTIVATION_RATIO_FEASIBILITY_BOUNDS, OPTIMIZATION_MODE,
     GRID_USE_PARETO_ONLY, OPTIMIZATION_OBJECTIVE_MODE
 )
 from state_space_simulation import run_full_simulation
-from plasticity import compute_plasticity_effect
+from plasticity import compute_plasticity_effect, apply_log_gain_plasticity_updates
 from stimulation_models import (
     DYNAMICS_FREE_STIMULATION_MODELS,
     STIMULATION_MODELS,
     apply_static_adjacency_stimulation,
     run_adjacency_activation_stimulation,
+    run_adjacency_activation_log_gain_stimulation,
 )
 from classification_score.band_connectivity_classifier import (
     BandConnectivityClassifier,
@@ -95,7 +98,10 @@ class EEGOptimizer:
                  plasticity_config: Dict = None,
                  stimulation_model: str = None,
                  static_edge_scope: str = None,
-                 adjacency_activation_neighbor_scale: float = None):
+                 adjacency_activation_neighbor_scale: float = None,
+                 log_gain_neighbor_scale: float = None,
+                 log_gain_plasticity_exponent: float = None,
+                 log_gain_plasticity_fraction: float = None):
         """
         Initialize EEG optimizer.
         
@@ -209,6 +215,37 @@ class EEGOptimizer:
                 "adjacency_activation_neighbor_scale must be finite and "
                 "non-negative"
             )
+        self.log_gain_neighbor_scale = float(
+            LOG_GAIN_NEIGHBOR_SCALE
+            if log_gain_neighbor_scale is None
+            else log_gain_neighbor_scale
+        )
+        self.log_gain_plasticity_exponent = float(
+            LOG_GAIN_PLASTICITY_EXPONENT
+            if log_gain_plasticity_exponent is None
+            else log_gain_plasticity_exponent
+        )
+        self.log_gain_plasticity_fraction = float(
+            LOG_GAIN_PLASTICITY_FRACTION
+            if log_gain_plasticity_fraction is None
+            else log_gain_plasticity_fraction
+        )
+        if not np.isfinite(self.log_gain_neighbor_scale) or self.log_gain_neighbor_scale < 0.0:
+            raise ValueError("log_gain_neighbor_scale must be finite and non-negative")
+        if (
+            not np.isfinite(self.log_gain_plasticity_exponent)
+            or self.log_gain_plasticity_exponent < 0.0
+        ):
+            raise ValueError(
+                "log_gain_plasticity_exponent must be finite and non-negative"
+            )
+        if (
+            not np.isfinite(self.log_gain_plasticity_fraction)
+            or not 0.0 <= self.log_gain_plasticity_fraction <= 1.0
+        ):
+            raise ValueError(
+                "log_gain_plasticity_fraction must be finite and within [0, 1]"
+            )
         ratio_lower, ratio_upper = ACTIVATION_RATIO_FEASIBILITY_BOUNDS
         if (
             not np.isfinite(ratio_lower)
@@ -234,6 +271,11 @@ class EEGOptimizer:
             self.fixed_band_index = self.band_names.index(fixed_band_name)
             self.n_bands = 1
         else:
+            if self.stimulation_model == "adjacency_activation_log_gain":
+                raise ValueError(
+                    "adjacency_activation_log_gain requires fixed-band optimization "
+                    "so each candidate uses the matching band RMS baseline"
+                )
             self.n_bands = len(self.band_names)
         if self.objective_mode == "classifier_patient_probability":
             if self.fixed_band_name is None:
@@ -364,6 +406,35 @@ class EEGOptimizer:
             print(f"    Warning: No raw data for {subject_id}, using random baseline")
             # return np.random.randn(self.n_nodes)  # mean=0, std=1
             raise RuntimeError(f"No raw data for subject: {subject_id}")
+
+        if self.stimulation_model == "adjacency_activation_log_gain":
+            baseline_by_band = self.subject_data[subject_id].get(
+                'baseline_activation_by_band'
+            )
+            if not isinstance(baseline_by_band, dict):
+                raise RuntimeError(
+                    f"No cached band RMS baselines for subject: {subject_id}"
+                )
+            if self.fixed_band_name not in baseline_by_band:
+                raise RuntimeError(
+                    f"No {self.fixed_band_name!r} RMS baseline for subject: "
+                    f"{subject_id}"
+                )
+            baseline = np.asarray(
+                baseline_by_band[self.fixed_band_name],
+                dtype=float,
+            )
+            if baseline.shape != (self.n_nodes,):
+                raise ValueError(
+                    f"Band RMS baseline for {subject_id}/{self.fixed_band_name} "
+                    f"has shape {baseline.shape}; expected ({self.n_nodes},)"
+                )
+            if not np.all(np.isfinite(baseline)) or np.any(baseline < 0.0):
+                raise ValueError(
+                    f"Band RMS baseline for {subject_id}/{self.fixed_band_name} "
+                    "must be finite and non-negative"
+                )
+            return baseline
 
         if 'baseline_activation' in self.subject_data[subject_id]:
             return np.asarray(
@@ -513,6 +584,15 @@ class EEGOptimizer:
                     neighbor_scale=self.adjacency_activation_neighbor_scale,
                     stability_constant=self.simulation_config['stability_constant'],
                 )
+            elif self.stimulation_model == "adjacency_activation_log_gain":
+                sim_results = run_adjacency_activation_log_gain_stimulation(
+                    adjacency_matrix=original_matrix,
+                    baseline_activation=baseline_activation,
+                    stimulation_node=node,
+                    log_gain=stimulation_amplitude,
+                    neighbor_scale=self.log_gain_neighbor_scale,
+                    stability_constant=self.simulation_config['stability_constant'],
+                )
             else:
                 sim_results = run_full_simulation(
                     adjacency_matrix=original_matrix,
@@ -564,7 +644,38 @@ class EEGOptimizer:
                     ),
                 })
 
-            if self.plasticity_config['plasticity_enabled']:
+            if self.stimulation_model == "adjacency_activation_log_gain":
+                feasibility_details.update({
+                    'stimulation_log_gain': stimulation_amplitude,
+                    'log_gain_neighbor_scale': self.log_gain_neighbor_scale,
+                    'log_gain_plasticity_exponent': (
+                        self.log_gain_plasticity_exponent
+                    ),
+                    'log_gain_plasticity_fraction': (
+                        self.log_gain_plasticity_fraction
+                    ),
+                    'adjacency_activation_orientation': (
+                        sim_results['adjacency_activation_orientation']
+                    ),
+                    'direct_log_gain_profile': (
+                        sim_results['direct_log_gain_profile']
+                    ),
+                    'neighbor_log_gain_profile_l1': (
+                        sim_results['neighbor_log_gain_profile_l1']
+                    ),
+                    'changed_activation_nodes': (
+                        sim_results['changed_activation_nodes']
+                    ),
+                })
+
+            if self.stimulation_model == "adjacency_activation_log_gain":
+                updated_matrix = apply_log_gain_plasticity_updates(
+                    adjacency_matrix=original_matrix,
+                    activation_ratios=sim_results['activation_ratios'],
+                    plasticity_exponent=self.log_gain_plasticity_exponent,
+                    plasticity_fraction=self.log_gain_plasticity_fraction,
+                )
+            elif self.plasticity_config['plasticity_enabled']:
                 updated_matrix = compute_plasticity_effect(
                     adjacency_matrix=original_matrix,
                     activation_ratios=sim_results['activation_ratios'],
@@ -736,6 +847,9 @@ class EEGOptimizer:
                     "  Adjacency neighbor scale: "
                     f"{self.adjacency_activation_neighbor_scale}"
                 )
+            elif self.stimulation_model == "adjacency_activation_log_gain":
+                print(f"  Fixed log gain: {amplitude}")
+                print(f"  Log-gain neighbor scale: {self.log_gain_neighbor_scale}")
             else:
                 print(f"  Fixed stimulation duration: {duration}")
                 print(f"  Fixed stimulation amplitude: {amplitude}")
@@ -764,6 +878,11 @@ class EEGOptimizer:
                     'stimulation_activation_amount': (
                         amplitude
                         if self.stimulation_model == "adjacency_activation"
+                        else None
+                    ),
+                    'stimulation_log_gain': (
+                        amplitude
+                        if self.stimulation_model == "adjacency_activation_log_gain"
                         else None
                     ),
                     'stimulation_model': self.stimulation_model,
@@ -827,6 +946,7 @@ class EEGOptimizer:
                 'stimulation_activation_amount': sol.get(
                     'stimulation_activation_amount'
                 ),
+                'stimulation_log_gain': sol.get('stimulation_log_gain'),
                 'stimulation_model': sol.get('stimulation_model', self.stimulation_model),
                 'leak': sol.get('leak'),
                 'objectives': sol['objectives'],
@@ -930,6 +1050,8 @@ class EEGOptimizer:
                     if self.stimulation_model == "static_adjacency"
                     else STIMULATION_ACTIVATION_AMOUNT_BOUNDS
                     if self.stimulation_model == "adjacency_activation"
+                    else LOG_GAIN_BOUNDS
+                    if self.stimulation_model == "adjacency_activation_log_gain"
                     else STIMULATION_AMPLITUDE_BOUNDS
                 ),
                 leak_bounds=STIMULATION_LEAK_BOUNDS,
@@ -1039,6 +1161,21 @@ class EEGOptimizer:
                 if self.stimulation_model == "adjacency_activation"
                 else None
             ),
+            'log_gain_neighbor_scale': (
+                self.log_gain_neighbor_scale
+                if self.stimulation_model == "adjacency_activation_log_gain"
+                else None
+            ),
+            'log_gain_plasticity_exponent': (
+                self.log_gain_plasticity_exponent
+                if self.stimulation_model == "adjacency_activation_log_gain"
+                else None
+            ),
+            'log_gain_plasticity_fraction': (
+                self.log_gain_plasticity_fraction
+                if self.stimulation_model == "adjacency_activation_log_gain"
+                else None
+            ),
             'optimization_measures': list(self.optimization_measures),
             'optimization_directions': dict(self.optimization_directions),
             'stimulation_amplitude_bounds': (
@@ -1054,6 +1191,11 @@ class EEGOptimizer:
             'stimulation_activation_amount_bounds': (
                 tuple(STIMULATION_ACTIVATION_AMOUNT_BOUNDS)
                 if self.stimulation_model == "adjacency_activation"
+                else None
+            ),
+            'log_gain_bounds': (
+                tuple(LOG_GAIN_BOUNDS)
+                if self.stimulation_model == "adjacency_activation_log_gain"
                 else None
             ),
             'activation_ratio_feasibility_bounds': (
@@ -1267,6 +1409,9 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         stimulation_model=STIMULATION_MODEL,
         static_edge_scope=STATIC_STIMULATION_EDGE_SCOPE,
         adjacency_activation_neighbor_scale=ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+        log_gain_neighbor_scale=LOG_GAIN_NEIGHBOR_SCALE,
+        log_gain_plasticity_exponent=LOG_GAIN_PLASTICITY_EXPONENT,
+        log_gain_plasticity_fraction=LOG_GAIN_PLASTICITY_FRACTION,
     )
     
     return optimizer

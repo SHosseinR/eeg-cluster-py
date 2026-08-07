@@ -126,6 +126,10 @@ def _rank_best_front(
                 "stimulation_duration": sol.get("stimulation_duration"),
                 "stimulation_amplitude": sol.get("stimulation_amplitude"),
                 "stimulation_total_change": sol.get("stimulation_total_change"),
+                "stimulation_activation_amount": sol.get(
+                    "stimulation_activation_amount"
+                ),
+                "stimulation_log_gain": sol.get("stimulation_log_gain"),
                 "stimulation_model": sol.get("stimulation_model"),
                 "objectives": sol["objectives"],
                 "distance": float(distances[idx]),
@@ -198,6 +202,14 @@ def _format_stimulation_details(
         return [
             "model=adjacency_activation",
             f"direct_activation={_format_value(activation_amount)}",
+            "duration=n/a",
+            "leak=n/a",
+        ]
+    log_gain = solution.get("stimulation_log_gain")
+    if log_gain is not None:
+        return [
+            "model=adjacency_activation_log_gain",
+            f"log_gain={_format_value(log_gain)}",
             "duration=n/a",
             "leak=n/a",
         ]

@@ -165,6 +165,10 @@ def build_analysis_tables(
                 solution.get("stimulation_activation_amount"),
                 default=amplitude,
             )
+            log_gain = _as_float(
+                solution.get("stimulation_log_gain"),
+                default=amplitude,
+            )
             feasible, violation = _solution_feasibility(solution)
             node = int(solution.get("node", -1))
             labels = result.get("channel_display_names") or result.get("channel_names") or []
@@ -183,6 +187,7 @@ def build_analysis_tables(
                 "stimulation_amplitude": amplitude,
                 "stimulation_total_change": total_change,
                 "stimulation_activation_amount": activation_amount,
+                "stimulation_log_gain": log_gain,
                 "stimulation_model": solution.get(
                     "stimulation_model",
                     result.get("stimulation_model", "state_space"),
@@ -541,7 +546,11 @@ def plot_stimulation_profile_dashboard(
         "stimulation_model" in group
         and group["stimulation_model"].eq("adjacency_activation").all()
     )
-    is_dynamics_free = is_static or is_adjacency_activation
+    is_log_gain = (
+        "stimulation_model" in group
+        and group["stimulation_model"].eq("adjacency_activation_log_gain").all()
+    )
+    is_dynamics_free = is_static or is_adjacency_activation or is_log_gain
     sns.set_theme(style="whitegrid")
     fig, axes = plt.subplots(2, 2, figsize=(16, 11))
 
@@ -549,6 +558,8 @@ def plot_stimulation_profile_dashboard(
         strength_column = "stimulation_total_change"
     elif is_adjacency_activation:
         strength_column = "stimulation_activation_amount"
+    elif is_log_gain:
+        strength_column = "stimulation_log_gain"
     else:
         strength_column = "stimulation_amplitude"
     histogram_bins, histogram_range, constant_center = _stable_histogram_spec(
@@ -581,6 +592,8 @@ def plot_stimulation_profile_dashboard(
         if is_static
         else "Selected signed direct activation amounts"
         if is_adjacency_activation
+        else "Selected signed log gains"
+        if is_log_gain
         else "Selected signed amplitudes"
     )
 
@@ -600,6 +613,8 @@ def plot_stimulation_profile_dashboard(
             "Signed total adjacency change"
             if is_static
             else "Signed direct activation amount"
+            if is_adjacency_activation
+            else "Signed log gain"
         )
         axes[0, 1].set_title("Dynamics-free optimization variables")
         colorbar_label = "Relative improvement"
@@ -668,6 +683,8 @@ def plot_stimulation_profile_dashboard(
         if is_static
         else "Signed direct activation amount"
         if is_adjacency_activation
+        else "Signed log gain"
+        if is_log_gain
         else "Signed amplitude"
     )
     fig.suptitle(f"{band.capitalize()} stimulation profile", fontsize=16)

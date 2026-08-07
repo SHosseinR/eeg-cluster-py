@@ -15,11 +15,149 @@ STIMULATION_MODELS = {
     "state_space",
     "static_adjacency",
     "adjacency_activation",
+    "adjacency_activation_log_gain",
 }
 DYNAMICS_FREE_STIMULATION_MODELS = {
     "static_adjacency",
     "adjacency_activation",
+    "adjacency_activation_log_gain",
 }
+
+
+def compute_band_rms(band_filtered_eeg: np.ndarray) -> np.ndarray:
+    """Return per-channel RMS amplitude from one band-filtered EEG array.
+
+    Parameters
+    ----------
+    band_filtered_eeg
+        Finite EEG samples with shape ``(epochs, channels, samples)`` or a
+        single epoch with shape ``(channels, samples)``.
+
+    Returns
+    -------
+    ndarray, shape (channels,)
+        ``sqrt(mean(EEG_i ** 2))`` over every epoch and sample for channel
+        ``i``. Computation uses float64 even when cached epochs are float32.
+    """
+
+    eeg = np.asarray(band_filtered_eeg, dtype=np.float64)
+    if eeg.ndim == 3:
+        if any(size == 0 for size in eeg.shape):
+            raise ValueError(
+                "band_filtered_eeg dimensions must be non-empty; "
+                f"got {eeg.shape}"
+            )
+        reduction_axes = (0, 2)
+    elif eeg.ndim == 2:
+        if any(size == 0 for size in eeg.shape):
+            raise ValueError(
+                "band_filtered_eeg dimensions must be non-empty; "
+                f"got {eeg.shape}"
+            )
+        reduction_axes = 1
+    else:
+        raise ValueError(
+            "band_filtered_eeg must have shape (epochs, channels, samples) "
+            f"or (channels, samples); got {eeg.shape}"
+        )
+    if not np.all(np.isfinite(eeg)):
+        raise ValueError("band_filtered_eeg contains non-finite values")
+
+    rms = np.sqrt(np.mean(np.square(eeg), axis=reduction_axes))
+    if rms.ndim != 1 or not np.all(np.isfinite(rms)):
+        raise ValueError("Band RMS calculation produced invalid values")
+    return rms
+
+
+def run_adjacency_activation_log_gain_stimulation(
+    adjacency_matrix: np.ndarray,
+    baseline_activation: np.ndarray,
+    stimulation_node: int,
+    log_gain: float,
+    *,
+    neighbor_scale: float = 1.0,
+    stability_constant: float = 0.01,
+) -> dict[str, np.ndarray | float | str | None]:
+    """Apply multiplicative direct-plus-one-hop activation gain.
+
+    For selected node ``k``, the spatial profile and activation ratio are
+
+    ``v = e_k + neighbor_scale * A_norm @ e_k``
+
+    ``R = exp(log_gain * v)``
+
+    The baseline vector is the per-channel RMS of the matching band-filtered
+    EEG. The returned final activation is ``E1 = E0 * R``. Connectivity
+    plasticity is deliberately performed by the separate log-gain plasticity
+    helper so the legacy activation model remains unchanged.
+    """
+
+    matrix = np.asarray(adjacency_matrix, dtype=float)
+    baseline = np.asarray(baseline_activation, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(f"adjacency_matrix must be square; got {matrix.shape}")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("adjacency_matrix contains non-finite values")
+    if baseline.shape != (matrix.shape[0],):
+        raise ValueError(
+            "baseline_activation must have shape "
+            f"({matrix.shape[0]},); got {baseline.shape}"
+        )
+    if not np.all(np.isfinite(baseline)) or np.any(baseline < 0.0):
+        raise ValueError(
+            "baseline_activation must contain finite, non-negative band RMS values"
+        )
+
+    node = int(stimulation_node)
+    if node < 0 or node >= matrix.shape[0]:
+        raise IndexError(
+            f"stimulation_node={node} is outside [0, {matrix.shape[0] - 1}]"
+        )
+    gain = float(log_gain)
+    if not np.isfinite(gain):
+        raise ValueError("log_gain must be finite")
+    spread_scale = float(neighbor_scale)
+    if not np.isfinite(spread_scale) or spread_scale < 0.0:
+        raise ValueError("neighbor_scale must be finite and non-negative")
+    normalization_constant = float(stability_constant)
+    if not np.isfinite(normalization_constant) or normalization_constant <= 0.0:
+        raise ValueError("stability_constant must be finite and positive")
+
+    normalized_matrix = normalize_adjacency_matrix(
+        matrix,
+        stability_constant=normalization_constant,
+    )
+    unit_vector = np.zeros(matrix.shape[0], dtype=float)
+    unit_vector[node] = 1.0
+    spatial_profile = unit_vector + spread_scale * (normalized_matrix @ unit_vector)
+    with np.errstate(over="ignore", invalid="ignore"):
+        activation_ratios = np.exp(gain * spatial_profile)
+        final_state = baseline * activation_ratios
+    if not np.all(np.isfinite(spatial_profile)):
+        raise ValueError("Log-gain spatial profile contains non-finite values")
+    if not np.all(np.isfinite(activation_ratios)):
+        raise ValueError("exp(log_gain * v) produced non-finite activation ratios")
+    if not np.all(np.isfinite(final_state)):
+        raise ValueError("Log-gain final activation contains non-finite values")
+
+    activation_change = final_state - baseline
+    neighbor_profile = spatial_profile - unit_vector
+    return {
+        "trajectory": None,
+        "final_state": final_state,
+        "activation_change": activation_change,
+        "activation_ratios": activation_ratios,
+        "raw_activation_ratios": activation_ratios.copy(),
+        "normalized_matrix": normalized_matrix,
+        "baseline": baseline,
+        "log_gain_spatial_profile": spatial_profile,
+        "direct_log_gain_profile": float(spatial_profile[node]),
+        "neighbor_log_gain_profile_l1": float(np.sum(np.abs(neighbor_profile))),
+        "changed_activation_nodes": float(np.count_nonzero(activation_change)),
+        "stimulation_log_gain": gain,
+        "log_gain_neighbor_scale": spread_scale,
+        "adjacency_activation_orientation": "column",
+    }
 
 
 def run_adjacency_activation_stimulation(

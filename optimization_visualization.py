@@ -53,6 +53,10 @@ def _rank_best_front(best_front: List[Dict], top_k: int, objective_mode: str = N
             'stimulation_duration': sol.get('stimulation_duration'),
             'stimulation_amplitude': sol.get('stimulation_amplitude'),
             'stimulation_total_change': sol.get('stimulation_total_change'),
+            'stimulation_activation_amount': sol.get(
+                'stimulation_activation_amount'
+            ),
+            'stimulation_log_gain': sol.get('stimulation_log_gain'),
             'stimulation_model': sol.get('stimulation_model'),
             'objectives': sol['objectives'],
             'distance': float(distances[idx]),
@@ -1784,7 +1788,12 @@ def create_optimization_report(optimization_results: Dict,
                 f.write(f"  Optimal band: {band_names[sol['band']]}\n")
                 if sol.get('stimulation_duration') is not None:
                     f.write(f"  Stimulation duration: {sol['stimulation_duration']:.4f}\n")
-                if sol.get('stimulation_total_change') is not None:
+                if sol.get('stimulation_log_gain') is not None:
+                    f.write(
+                        "  Signed log gain: "
+                        f"{sol['stimulation_log_gain']:.4f}\n"
+                    )
+                elif sol.get('stimulation_total_change') is not None:
                     f.write(
                         "  Signed total adjacency change: "
                         f"{sol['stimulation_total_change']:.4f}\n"
@@ -1841,9 +1850,12 @@ def create_optimization_report(optimization_results: Dict,
                         activation_amount = ranked_sol.get(
                             'stimulation_activation_amount'
                         )
+                        log_gain = ranked_sol.get('stimulation_log_gain')
                         duration_text = f"{duration:.4f}" if duration is not None else "N/A"
                         amplitude_text = f"{amplitude:.4f}" if amplitude is not None else "N/A"
-                        if total_change is not None:
+                        if log_gain is not None:
+                            amplitude_text = f"log gain={float(log_gain):.4f}"
+                        elif total_change is not None:
                             amplitude_text = f"total change={float(total_change):.4f}"
                         elif activation_amount is not None:
                             amplitude_text = (

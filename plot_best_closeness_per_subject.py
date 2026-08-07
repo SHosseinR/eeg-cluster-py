@@ -54,6 +54,7 @@ def _rank_best_front(
                 "band_name": sol.get("band_name"),
                 "stimulation_duration": sol.get("stimulation_duration"),
                 "stimulation_amplitude": sol.get("stimulation_amplitude"),
+                "stimulation_log_gain": sol.get("stimulation_log_gain"),
                 "objectives": sol["objectives"],
                 "distance": float(distances[idx]),
                 "rank": rank,

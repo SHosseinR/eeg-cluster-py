@@ -428,6 +428,11 @@ class NSGAIIOptimizer:
                     if self.stimulation_model == "adjacency_activation"
                     else None
                 ),
+                'stimulation_log_gain': (
+                    amplitude
+                    if self.stimulation_model == "adjacency_activation_log_gain"
+                    else None
+                ),
                 'stimulation_model': self.stimulation_model,
                 'leak': leak,
                 'objectives': f,

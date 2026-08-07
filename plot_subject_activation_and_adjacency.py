@@ -24,13 +24,17 @@ from optimization_config import (
     OPTIMIZATION_DEBUG_SUBJECT,
     STATIC_STIMULATION_EDGE_SCOPE,
     ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    LOG_GAIN_NEIGHBOR_SCALE,
+    LOG_GAIN_PLASTICITY_EXPONENT,
+    LOG_GAIN_PLASTICITY_FRACTION,
 )
 from state_space_simulation import run_full_simulation
-from plasticity import compute_plasticity_effect
+from plasticity import compute_plasticity_effect, apply_log_gain_plasticity_updates
 from channel_metadata import get_display_channel_names
 from stimulation_models import (
     apply_static_adjacency_stimulation,
     run_adjacency_activation_stimulation,
+    run_adjacency_activation_log_gain_stimulation,
 )
 
 
@@ -206,6 +210,7 @@ def main() -> None:
     ).strip().lower()
     is_static = stimulation_model == "static_adjacency"
     is_adjacency_activation = stimulation_model == "adjacency_activation"
+    is_log_gain = stimulation_model == "adjacency_activation_log_gain"
 
     if is_static:
         total_change = best_solution.get(
@@ -256,6 +261,26 @@ def main() -> None:
                 f"neighbor_scale={float(neighbor_scale):.6g}, "
                 "orientation=column"
             )
+        elif is_log_gain:
+            log_gain = best_solution.get("stimulation_log_gain", amplitude)
+            neighbor_scale = results.get(
+                "log_gain_neighbor_scale",
+                LOG_GAIN_NEIGHBOR_SCALE,
+            )
+            sim_results = run_adjacency_activation_log_gain_stimulation(
+                adjacency_matrix=original_matrix,
+                baseline_activation=np.array(baseline_activation, dtype=float),
+                stimulation_node=node_idx,
+                log_gain=float(log_gain),
+                neighbor_scale=float(neighbor_scale),
+                stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+            )
+            print(
+                "Adjacency activation log gain: "
+                f"log_gain={float(log_gain):.6g}, "
+                f"neighbor_scale={float(neighbor_scale):.6g}, "
+                "orientation=column"
+            )
         else:
             duration = best_solution.get("stimulation_duration")
             leak = best_solution.get("leak")
@@ -273,7 +298,24 @@ def main() -> None:
                 stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
                 leak=float(leak),
             )
-        if PLASTICITY_CONFIG.get("plasticity_enabled", True):
+        if is_log_gain:
+            updated_matrix = apply_log_gain_plasticity_updates(
+                adjacency_matrix=original_matrix,
+                activation_ratios=sim_results["activation_ratios"],
+                plasticity_exponent=float(
+                    results.get(
+                        "log_gain_plasticity_exponent",
+                        LOG_GAIN_PLASTICITY_EXPONENT,
+                    )
+                ),
+                plasticity_fraction=float(
+                    results.get(
+                        "log_gain_plasticity_fraction",
+                        LOG_GAIN_PLASTICITY_FRACTION,
+                    )
+                ),
+            )
+        elif PLASTICITY_CONFIG.get("plasticity_enabled", True):
             updated_matrix = compute_plasticity_effect(
                 adjacency_matrix=original_matrix,
                 activation_ratios=sim_results["activation_ratios"],
@@ -416,8 +458,13 @@ def main() -> None:
             ax.set_xticklabels(
                 channel_names, rotation=45, ha="right", fontsize=8
             )
+            model_title = (
+                "Multiplicative Log-Gain Activation Change"
+                if is_log_gain
+                else "Direct + One-Hop Activation Change"
+            )
             ax.set_title(
-                f"Direct + One-Hop Activation Change - {subject_id} "
+                f"{model_title} - {subject_id} "
                 f"({band_name}, node {node_label})"
             )
             ax.set_xlabel("Electrode")
