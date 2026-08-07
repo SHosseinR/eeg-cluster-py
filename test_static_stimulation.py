@@ -51,7 +51,7 @@ class StaticAdjacencyStimulationTests(unittest.TestCase):
         self.assertTrue(
             all(
                 path.startswith(
-                    "./results-adjacency-activation-signed-no-rejection-logistic/"
+                    "./results-adjact-signed-norej-logistic/"
                 )
                 for path in output_directories
             )

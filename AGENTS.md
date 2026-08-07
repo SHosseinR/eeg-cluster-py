@@ -47,6 +47,15 @@ The project has two connected workflows:
    Its fixed-band NSGA layout is node plus signed direct activation amount;
    duration and leak are absent, and no multi-hop adjacency powers are used.
 
+   The TD-BRAIN-only
+   `stimulation_model = "adjacency_activation_log_gain"` alternative uses
+   cached matching-band filtered EEG to define each node's baseline RMS. It
+   applies a signed exponential gain over the selected node plus one adjacency
+   hop, then interpolates toward the exponentiated pairwise-ratio plasticity
+   target. Its fixed-band NSGA layout is node plus log gain; duration and leak
+   are absent. This is a separate model and must not change the legacy
+   `adjacency_activation` path.
+
 The optimization output is a computational research hypothesis, not a validated treatment recommendation. Do not describe simulated targets as clinically effective, and do not equate Granger-causal predictability with biological causation.
 
 ## Current experiment defaults
@@ -107,6 +116,16 @@ model with signed direct-node bounds `[-3, 3]`, neighbor scale `1.0`, the
 original activation feasibility bounds, and the original plasticity update.
 They write beneath
 `results-adjacency-activation-signed-no-rejection-logistic/`.
+
+The
+`tdbrain_coherence_adjacency_activation_log_gain_signed_no_rejection_logistic.toml`
+profile reuses the established TD-BRAIN coherence matrices, filtered epochs,
+metadata, and logistic classifier bundles from the adjacency-activation run.
+It writes only to `optimization-log-gain/` under that cached analysis root,
+uses log-gain bounds `[-2.302585093, 2.302585093]`, neighbor scale `1`,
+plasticity exponent `1`, plasticity fraction `1`, and no patient rejection.
+Use `run_coherence_probability_pipeline.ps1 -SkipAnalysis` so cached artifacts
+are validated before optimization and analysis/classification are not rerun.
 
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 

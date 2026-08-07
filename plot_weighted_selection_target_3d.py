@@ -167,13 +167,20 @@ def _channel_positions_2d(channel_names: List[str], metadata: Dict) -> np.ndarra
     suffixes = ("-LE", "-REF", "-AVG")
     for index, name in enumerate(channel_names):
         label = str(name).strip()
+        is_bipolar = False
         for suffix in suffixes:
             if label.upper().endswith(suffix):
                 label = label[:-len(suffix)]
                 break
         if label.count("-") == 1:
             label = label.split("-", 1)[0].strip()
-        position = standard.get(label.casefold())
+            is_bipolar = True
+        if is_bipolar:
+            position = tuple(
+                _project_topdown(_channel_positions([label], metadata))[0]
+            )
+        else:
+            position = standard.get(label.casefold())
         if position is None:
             projected.append((np.nan, np.nan))
             unresolved.append(index)

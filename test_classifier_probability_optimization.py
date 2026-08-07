@@ -61,6 +61,11 @@ def _optimizer(bundle: BandConnectivityClassifier) -> EEGOptimizer:
 
 
 class ClassifierProbabilityOptimizationTests(unittest.TestCase):
+    def test_fixed_band_optimizer_keeps_single_band_layout(self):
+        optimizer = _optimizer(_bundle())
+        self.assertEqual(optimizer.fixed_band_index, 1)
+        self.assertEqual(optimizer.n_bands, 1)
+
     def test_fast_final_state_matches_legacy_trajectory(self):
         matrix = np.array([[0.0, 0.2, 0.1], [0.2, 0.0, 0.3], [0.1, 0.3, 0.0]])
         baseline = np.array([0.4, 0.6, 0.8])

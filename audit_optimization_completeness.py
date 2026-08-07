@@ -63,6 +63,11 @@ def audit(dataset_config: str, output: str | None = None) -> Path:
                     if solution.get('stimulation_activation_amount') is not None
                     else np.nan
                 ),
+                'stimulation_log_gain': (
+                    float(solution['stimulation_log_gain'])
+                    if solution.get('stimulation_log_gain') is not None
+                    else np.nan
+                ),
                 'constraint_violation': float(solution.get('constraint_violation', np.nan)),
             })
     destination = Path(output) if output else (

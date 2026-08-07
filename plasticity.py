@@ -4,6 +4,53 @@ Plasticity-based connectivity updates
 import numpy as np
 
 
+def apply_log_gain_plasticity_updates(
+    adjacency_matrix,
+    activation_ratios,
+    plasticity_exponent=1.0,
+    plasticity_fraction=1.0,
+):
+    """Apply the log-gain model's exponentiated, fractional plasticity rule.
+
+    For baseline adjacency ``A0`` and activation ratios ``R``, this computes
+
+    ``A_target[i,j] = A0[i,j] * (R[i] * R[j]) ** plasticity_exponent``
+
+    ``A_post = A0 + plasticity_fraction * (A_target - A0)``
+
+    Inputs are validated explicitly because candidate matrices are consumed by
+    saved classifiers and must remain finite and shape-compatible.
+    """
+
+    matrix = np.asarray(adjacency_matrix, dtype=float)
+    ratios = np.asarray(activation_ratios, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(f"adjacency_matrix must be square; got {matrix.shape}")
+    if ratios.shape != (matrix.shape[0],):
+        raise ValueError(
+            f"activation_ratios must have shape ({matrix.shape[0]},); "
+            f"got {ratios.shape}"
+        )
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("adjacency_matrix contains non-finite values")
+    if not np.all(np.isfinite(ratios)) or np.any(ratios <= 0.0):
+        raise ValueError("activation_ratios must be finite and strictly positive")
+
+    exponent = float(plasticity_exponent)
+    fraction = float(plasticity_fraction)
+    if not np.isfinite(exponent) or exponent < 0.0:
+        raise ValueError("plasticity_exponent must be finite and non-negative")
+    if not np.isfinite(fraction) or not 0.0 <= fraction <= 1.0:
+        raise ValueError("plasticity_fraction must be finite and within [0, 1]")
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        target = matrix * np.power(np.outer(ratios, ratios), exponent)
+        updated = matrix + fraction * (target - matrix)
+    if not np.all(np.isfinite(target)) or not np.all(np.isfinite(updated)):
+        raise ValueError("Log-gain plasticity produced non-finite connectivity")
+    return updated
+
+
 def apply_plasticity_updates(adjacency_matrix, activation_ratios, scaling=1.0):
     """
     Update connectivity matrix based on node activation changes (plasticity).

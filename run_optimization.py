@@ -27,6 +27,8 @@ from optimization_config import (
     STATIC_STIMULATION_EDGE_SCOPE, STIMULATION_TOTAL_CHANGE_BOUNDS,
     STIMULATION_ACTIVATION_AMOUNT_BOUNDS,
     ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    LOG_GAIN_BOUNDS, LOG_GAIN_NEIGHBOR_SCALE,
+    LOG_GAIN_PLASTICITY_EXPONENT, LOG_GAIN_PLASTICITY_FRACTION,
     STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS,
     STIMULATION_LEAK_BOUNDS, NSGA_CONFIG,
 )
@@ -47,6 +49,7 @@ from statistics_utils import (
 # Import data loading (assuming these exist in your main pipeline)
 from data_loader import load_subject_epochs
 from channel_metadata import get_display_channel_names, load_channel_metadata
+from stimulation_models import compute_band_rms
 
 
 def create_output_directories():
@@ -101,6 +104,92 @@ def _load_group_baseline_data(data_path, group_name):
         del data
 
     print(f"Loaded {len(subject_data)}/{len(subject_folders)} {group_name} baseline activations")
+    return subject_data
+
+
+def _load_cached_band_rms_data(
+    analysis_input_dir,
+    connectivity_matrices,
+    channel_names,
+    channel_display_names,
+    channel_metadata,
+):
+    """Load Patient band RMS vectors from cached filtered-epoch artifacts."""
+
+    data_dir = os.path.join(analysis_input_dir, 'data')
+    index_path = os.path.join(data_dir, 'filtered_epochs_index.npy')
+    if not os.path.exists(index_path):
+        raise FileNotFoundError(
+            "The log-gain model requires cached filtered epochs; missing index: "
+            f"{index_path}"
+        )
+    index = np.load(index_path, allow_pickle=True).item()
+    if not isinstance(index, dict) or 'Patient' not in index:
+        raise ValueError(f"Invalid filtered-epoch index: {index_path}")
+
+    patient_ids = sorted(str(value) for value in connectivity_matrices.get('Patient', {}))
+    indexed_ids = {str(value) for value in index['Patient']}
+    missing_index = sorted(set(patient_ids).difference(indexed_ids))
+    if missing_index:
+        raise ValueError(
+            "Patient connectivity subjects are missing from the filtered-epoch "
+            f"index: {missing_index}"
+        )
+
+    print(
+        "\nLoading cached band-filtered EEG RMS baselines from: "
+        f"{os.path.join(data_dir, 'filtered_epochs', 'Patient')}"
+    )
+    subject_data = {}
+    for position, subject_id in enumerate(patient_ids, start=1):
+        epoch_path = os.path.join(
+            data_dir,
+            'filtered_epochs',
+            'Patient',
+            f'{subject_id}.npy',
+        )
+        if not os.path.exists(epoch_path):
+            raise FileNotFoundError(
+                f"Missing cached Patient filtered epochs: {epoch_path}"
+            )
+        payload = np.load(epoch_path, allow_pickle=True).item()
+        if not isinstance(payload, dict) or 'filtered_epochs' not in payload:
+            raise ValueError(f"Invalid filtered-epoch payload: {epoch_path}")
+        payload_channels = list(
+            payload.get('channel_names', payload.get('channels', []))
+        )
+        if payload_channels != list(channel_names):
+            raise ValueError(
+                f"Cached channel order differs for {subject_id}: {epoch_path}"
+            )
+        filtered_epochs = payload['filtered_epochs']
+        baseline_by_band = {}
+        for band_name in FREQUENCY_BANDS:
+            if band_name not in filtered_epochs:
+                raise ValueError(
+                    f"Cached epochs for {subject_id} are missing band {band_name!r}"
+                )
+            baseline = compute_band_rms(filtered_epochs[band_name])
+            if baseline.shape != (len(channel_names),):
+                raise ValueError(
+                    f"Band RMS shape mismatch for {subject_id}/{band_name}: "
+                    f"{baseline.shape}"
+                )
+            baseline_by_band[band_name] = baseline
+        subject_data[subject_id] = {
+            'baseline_activation_by_band': baseline_by_band,
+            'fs': float(payload['fs']),
+            'channels': list(channel_names),
+            'channel_names': list(channel_names),
+            'channel_display_names': list(channel_display_names),
+            'channel_metadata': channel_metadata,
+            'group': 'Patient',
+            'baseline_source': 'cached_band_filtered_eeg_rms',
+        }
+        if position == 1 or position % 25 == 0 or position == len(patient_ids):
+            print(f"[{position}/{len(patient_ids)}] Loaded band RMS for {subject_id}")
+
+    print(f"Loaded cached band RMS baselines for {len(subject_data)} Patient subjects")
     return subject_data
 
 
@@ -181,6 +270,18 @@ def load_data_for_optimization():
             }
             for subject_id in connectivity_matrices.get('Patient', {})
         }
+    elif STIMULATION_MODEL == "adjacency_activation_log_gain":
+        print(
+            "\nLog-gain model: reusing cached band-filtered epochs; "
+            "raw EEG loading is not required"
+        )
+        subject_data = _load_cached_band_rms_data(
+            OPTIMIZATION_ANALYSIS_INPUT_DIR,
+            connectivity_matrices,
+            channel_names,
+            channel_display_names,
+            channel_metadata,
+        )
     else:
         print(f"\nLoading raw EEG data for baseline activation...")
         from config import PATIENT_DATA_PATH
@@ -435,6 +536,14 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
             f"{STIMULATION_ACTIVATION_AMOUNT_BOUNDS}"
         )
         print("Decision variables per fixed band: node, activation_amount")
+        print("Duration and leak: not used")
+    elif STIMULATION_MODEL == "adjacency_activation_log_gain":
+        print(f"Log-gain neighbor scale: {LOG_GAIN_NEIGHBOR_SCALE}")
+        print(f"Signed log-gain bounds: {LOG_GAIN_BOUNDS}")
+        print(f"Plasticity exponent: {LOG_GAIN_PLASTICITY_EXPONENT}")
+        print(f"Plasticity fraction: {LOG_GAIN_PLASTICITY_FRACTION}")
+        print("Decision variables per fixed band: node, log_gain")
+        print("Baseline: RMS of cached matching-band filtered EEG")
         print("Duration and leak: not used")
     else:
         print(f"Duration bounds: {STIMULATION_DURATION_BOUNDS}")

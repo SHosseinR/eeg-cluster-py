@@ -195,6 +195,51 @@ if (
         "and non-negative"
     )
 
+# Multiplicative log-gain activation model. Its decision variable is log_gain,
+# so the default interval maps exactly to direct-node ratios from 0.1 to 10.
+# The baseline activation comes from RMS amplitudes of cached band-filtered EEG.
+LOG_GAIN_BOUNDS = tuple(
+    OPTIMIZATION_SETTINGS.get(
+        "log_gain_bounds",
+        (-2.302585093, 2.302585093),
+    )
+)
+if (
+    len(LOG_GAIN_BOUNDS) != 2
+    or not np.all(np.isfinite(LOG_GAIN_BOUNDS))
+    or LOG_GAIN_BOUNDS[0] > LOG_GAIN_BOUNDS[1]
+):
+    raise ValueError(
+        "optimization.log_gain_bounds must contain two finite, ordered values"
+    )
+LOG_GAIN_NEIGHBOR_SCALE = float(
+    OPTIMIZATION_SETTINGS.get("neighbor_scale", 1.0)
+)
+if not np.isfinite(LOG_GAIN_NEIGHBOR_SCALE) or LOG_GAIN_NEIGHBOR_SCALE < 0.0:
+    raise ValueError(
+        "optimization.neighbor_scale must be finite and non-negative"
+    )
+LOG_GAIN_PLASTICITY_EXPONENT = float(
+    OPTIMIZATION_SETTINGS.get("plasticity_exponent", 1.0)
+)
+if (
+    not np.isfinite(LOG_GAIN_PLASTICITY_EXPONENT)
+    or LOG_GAIN_PLASTICITY_EXPONENT < 0.0
+):
+    raise ValueError(
+        "optimization.plasticity_exponent must be finite and non-negative"
+    )
+LOG_GAIN_PLASTICITY_FRACTION = float(
+    OPTIMIZATION_SETTINGS.get("plasticity_fraction", 1.0)
+)
+if (
+    not np.isfinite(LOG_GAIN_PLASTICITY_FRACTION)
+    or not 0.0 <= LOG_GAIN_PLASTICITY_FRACTION <= 1.0
+):
+    raise ValueError(
+        "optimization.plasticity_fraction must be finite and within [0, 1]"
+    )
+
 # Hard feasibility bounds on raw final/baseline activation ratios. Candidates
 # outside this range are rejected by NSGA-II before the clipped ratios can make
 # extreme stimulation solutions look artificially equivalent.
