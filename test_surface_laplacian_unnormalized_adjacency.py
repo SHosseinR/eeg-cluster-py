@@ -99,6 +99,11 @@ class SurfaceLaplacianUnnormalizedAdjacencyTests(unittest.TestCase):
             Path(profile["output_directory"]),
             Path(profile["optimization"]["analysis_input_directory"]),
         )
+        self.assertEqual(
+            Path(profile["output_directory"]).parts[-2:],
+            ("out", "tdb-lap"),
+        )
+        self.assertEqual(profile["optimization_output_subdirectory"], "opt")
 
 
 if __name__ == "__main__":

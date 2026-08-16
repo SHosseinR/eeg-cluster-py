@@ -8,8 +8,8 @@ dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/o
 healthy_subdirectory = "Healthy"
 patient_subdirectory = "MDD"
 
-output_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/results-surface-laplacian-log-gain-unnormalized/TDBRAIN-restEC-coherence"
-optimization_output_subdirectory = "optimization-log-gain-unnormalized-adjacency"
+output_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/out/tdb-lap"
+optimization_output_subdirectory = "opt"
 optimization_debug_subject = "sub-88064657"
 
 [preprocessing.surface_laplacian]
@@ -39,7 +39,7 @@ minimum_balanced_accuracy = 0.65
 maximum_brier = 0.25
 
 [optimization]
-analysis_input_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/results-surface-laplacian-log-gain-unnormalized/TDBRAIN-restEC-coherence"
+analysis_input_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/out/tdb-lap"
 objective_mode = "classifier_patient_probability"
 stimulation_model = "adjacency_activation_log_gain"
 adjacency_propagation_normalization = "none"

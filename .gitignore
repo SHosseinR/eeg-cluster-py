@@ -243,6 +243,7 @@ first-paper-coherence/
 TDBRAIN-restEC-coherence/
 pipeline_timings_*.csv
 run_logs/
+/out/
 *.rar
 *.zip
 presentation
