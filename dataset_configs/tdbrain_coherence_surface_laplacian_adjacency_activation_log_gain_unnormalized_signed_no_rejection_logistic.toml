@@ -1,0 +1,59 @@
+# TD-BRAIN multiplicative direct-plus-one-hop log-gain experiment with a
+# spherical-spline surface Laplacian applied before epoching/filtering. This is
+# a fresh analysis/classification run: Laplacian-transformed EEG must not reuse
+# coherence matrices, filtered epochs, or classifiers from the non-Laplacian
+# experiment. Optimization preserves natural coherence weights in the one-hop
+# propagation operator (no spectral-radius division).
+dataset_root = "D:/university/projects/graph-opt/tbdbrain/TDBRAIN_Dataset_V3_1/output/preprocessed_tdbrain_restEC_set2"
+healthy_subdirectory = "Healthy"
+patient_subdirectory = "MDD"
+
+output_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/results-surface-laplacian-log-gain-unnormalized/TDBRAIN-restEC-coherence"
+optimization_output_subdirectory = "optimization-log-gain-unnormalized-adjacency"
+optimization_debug_subject = "sub-88064657"
+
+[preprocessing.surface_laplacian]
+enabled = true
+montage = "standard_1005"
+sphere = "auto"
+lambda2 = 1e-5
+stiffness = 4.0
+n_legendre_terms = 50
+
+[connectivity]
+methods = ["coh"]
+selected_method = "coh"
+normalization = "none"
+error_policy = "raise"
+spectral_input = "band_filtered"
+n_jobs = 8
+
+[classification]
+source = "connectivity_edges"
+models = ["logistic_l2"]
+screen_repeats = 1
+validation_repeats = 5
+n_jobs = 8
+minimum_roc_auc = 0.70
+minimum_balanced_accuracy = 0.65
+maximum_brier = 0.25
+
+[optimization]
+analysis_input_directory = "D:/university/projects/worktree/eeg-tdbrain-log-gain-laplacian-raw-adjacency/results-surface-laplacian-log-gain-unnormalized/TDBRAIN-restEC-coherence"
+objective_mode = "classifier_patient_probability"
+stimulation_model = "adjacency_activation_log_gain"
+adjacency_propagation_normalization = "none"
+log_gain_bounds = [-2.302585093, 2.302585093]
+neighbor_scale = 1.0
+plasticity_exponent = 1.0
+plasticity_fraction = 1.0
+classifier_model_directory = "data/connectivity_classifiers/models"
+patient_ranking_template = "connectivity_classifiers/classifier_patient_ranking_{band}.csv"
+patient_rejection_percent = 0
+n_jobs = 8
+
+# Required by the shared schema, but not objectives in classifier-probability mode.
+[optimization_measures_by_band]
+delta = ["char_path_length", "diameter", "transitivity"]
+alpha = ["local_efficiency", "global_efficiency", "char_path_length"]
+beta = ["median_weight", "std_weight", "diameter"]

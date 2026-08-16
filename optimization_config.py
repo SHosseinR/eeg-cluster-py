@@ -195,6 +195,21 @@ if (
         "and non-negative"
     )
 
+# One-hop adjacency propagation can either preserve the original connectivity
+# scale or retain the historical spectral-radius division. State-space
+# dynamics always keep their separate stability normalization.
+ADJACENCY_PROPAGATION_NORMALIZATION = str(
+    OPTIMIZATION_SETTINGS.get(
+        "adjacency_propagation_normalization",
+        "spectral_radius",
+    )
+).strip().lower()
+if ADJACENCY_PROPAGATION_NORMALIZATION not in {"none", "spectral_radius"}:
+    raise ValueError(
+        "optimization.adjacency_propagation_normalization must be 'none' or "
+        f"'spectral_radius'; got {ADJACENCY_PROPAGATION_NORMALIZATION!r}"
+    )
+
 # Multiplicative log-gain activation model. Its decision variable is log_gain,
 # so the default interval maps exactly to direct-node ratios from 0.1 to 10.
 # The baseline activation comes from RMS amplitudes of cached band-filtered EEG.

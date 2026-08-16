@@ -16,6 +16,9 @@ from config import (
     FREQUENCY_BANDS, CONNECTIVITY_METHODS, SELECTED_METHOD,
     NETWORK_MEASURES, STEP_TO_START, CONNECTIVITY_N_JOBS,
     SPECTRAL_CONNECTIVITY_INPUT,
+    SURFACE_LAPLACIAN_ENABLED, SURFACE_LAPLACIAN_SPHERE,
+    SURFACE_LAPLACIAN_LAMBDA2, SURFACE_LAPLACIAN_STIFFNESS,
+    SURFACE_LAPLACIAN_N_LEGENDRE_TERMS, SURFACE_LAPLACIAN_MONTAGE,
     CLASSIFICATION_MODE, CLASSIFICATION_MODEL, CLASSIFICATION_C,
     CLASSIFICATION_FEATURE_IMPORTANCE_TOP_N,
     CLASSIFICATION_SOURCE, CLASSIFICATION_MODELS,
@@ -140,6 +143,16 @@ def main():
     print("\n" + "="*80)
     print("EEG CONNECTIVITY ANALYSIS PIPELINE")
     print("="*80)
+    print(f"Surface Laplacian enabled: {SURFACE_LAPLACIAN_ENABLED}")
+    if SURFACE_LAPLACIAN_ENABLED:
+        print(
+            "Surface Laplacian parameters: "
+            f"montage={SURFACE_LAPLACIAN_MONTAGE}, "
+            f"sphere={SURFACE_LAPLACIAN_SPHERE}, "
+            f"lambda2={SURFACE_LAPLACIAN_LAMBDA2}, "
+            f"stiffness={SURFACE_LAPLACIAN_STIFFNESS}, "
+            f"n_legendre_terms={SURFACE_LAPLACIAN_N_LEGENDRE_TERMS}"
+        )
     
     # Create output directories
     create_output_directories()
@@ -292,6 +305,18 @@ def main():
                 'frequency_bands': FREQUENCY_BANDS,
                 'connectivity_methods': CONNECTIVITY_METHODS,
                 'selected_method': SELECTED_METHOD,
+                'preprocessing': {
+                    'surface_laplacian': {
+                        'enabled': SURFACE_LAPLACIAN_ENABLED,
+                        'sphere': SURFACE_LAPLACIAN_SPHERE,
+                        'montage': SURFACE_LAPLACIAN_MONTAGE,
+                        'lambda2': SURFACE_LAPLACIAN_LAMBDA2,
+                        'stiffness': SURFACE_LAPLACIAN_STIFFNESS,
+                        'n_legendre_terms': (
+                            SURFACE_LAPLACIAN_N_LEGENDRE_TERMS
+                        ),
+                    },
+                },
             }
             np.save(
                 os.path.join(OUTPUT_DIR, 'data', 'analysis_metadata.npy'),

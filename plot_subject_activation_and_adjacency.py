@@ -24,6 +24,7 @@ from optimization_config import (
     OPTIMIZATION_DEBUG_SUBJECT,
     STATIC_STIMULATION_EDGE_SCOPE,
     ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    ADJACENCY_PROPAGATION_NORMALIZATION,
     LOG_GAIN_NEIGHBOR_SCALE,
     LOG_GAIN_PLASTICITY_EXPONENT,
     LOG_GAIN_PLASTICITY_FRACTION,
@@ -254,6 +255,12 @@ def main() -> None:
                 stimulation_amount=float(amplitude),
                 neighbor_scale=float(neighbor_scale),
                 stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+                adjacency_normalization=str(
+                    results.get(
+                        "adjacency_propagation_normalization",
+                        ADJACENCY_PROPAGATION_NORMALIZATION,
+                    )
+                ),
             )
             print(
                 "Adjacency activation: "
@@ -274,11 +281,19 @@ def main() -> None:
                 log_gain=float(log_gain),
                 neighbor_scale=float(neighbor_scale),
                 stability_constant=float(SIMULATION_CONFIG["stability_constant"]),
+                adjacency_normalization=str(
+                    results.get(
+                        "adjacency_propagation_normalization",
+                        ADJACENCY_PROPAGATION_NORMALIZATION,
+                    )
+                ),
             )
             print(
                 "Adjacency activation log gain: "
                 f"log_gain={float(log_gain):.6g}, "
                 f"neighbor_scale={float(neighbor_scale):.6g}, "
+                "adjacency_normalization="
+                f"{sim_results['adjacency_propagation_normalization']}, "
                 "orientation=column"
             )
         else:

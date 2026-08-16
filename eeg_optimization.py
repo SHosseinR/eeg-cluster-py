@@ -13,7 +13,7 @@ from optimization_config import (
     STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS, STIMULATION_LEAK_BOUNDS,
     STIMULATION_MODEL, STIMULATION_TOTAL_CHANGE_BOUNDS,
     STIMULATION_ACTIVATION_AMOUNT_BOUNDS, STATIC_STIMULATION_EDGE_SCOPE,
-    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    ADJACENCY_ACTIVATION_NEIGHBOR_SCALE, ADJACENCY_PROPAGATION_NORMALIZATION,
     LOG_GAIN_BOUNDS, LOG_GAIN_NEIGHBOR_SCALE,
     LOG_GAIN_PLASTICITY_EXPONENT, LOG_GAIN_PLASTICITY_FRACTION,
     ACTIVATION_RATIO_FEASIBILITY_BOUNDS, OPTIMIZATION_MODE,
@@ -99,6 +99,7 @@ class EEGOptimizer:
                  stimulation_model: str = None,
                  static_edge_scope: str = None,
                  adjacency_activation_neighbor_scale: float = None,
+                 adjacency_propagation_normalization: str = None,
                  log_gain_neighbor_scale: float = None,
                  log_gain_plasticity_exponent: float = None,
                  log_gain_plasticity_fraction: float = None):
@@ -214,6 +215,19 @@ class EEGOptimizer:
             raise ValueError(
                 "adjacency_activation_neighbor_scale must be finite and "
                 "non-negative"
+            )
+        self.adjacency_propagation_normalization = str(
+            ADJACENCY_PROPAGATION_NORMALIZATION
+            if adjacency_propagation_normalization is None
+            else adjacency_propagation_normalization
+        ).strip().lower()
+        if self.adjacency_propagation_normalization not in {
+            "none",
+            "spectral_radius",
+        }:
+            raise ValueError(
+                "adjacency_propagation_normalization must be 'none' or "
+                "'spectral_radius'"
             )
         self.log_gain_neighbor_scale = float(
             LOG_GAIN_NEIGHBOR_SCALE
@@ -583,6 +597,9 @@ class EEGOptimizer:
                     stimulation_amount=stimulation_amplitude,
                     neighbor_scale=self.adjacency_activation_neighbor_scale,
                     stability_constant=self.simulation_config['stability_constant'],
+                    adjacency_normalization=(
+                        self.adjacency_propagation_normalization
+                    ),
                 )
             elif self.stimulation_model == "adjacency_activation_log_gain":
                 sim_results = run_adjacency_activation_log_gain_stimulation(
@@ -592,6 +609,9 @@ class EEGOptimizer:
                     log_gain=stimulation_amplitude,
                     neighbor_scale=self.log_gain_neighbor_scale,
                     stability_constant=self.simulation_config['stability_constant'],
+                    adjacency_normalization=(
+                        self.adjacency_propagation_normalization
+                    ),
                 )
             else:
                 sim_results = run_full_simulation(
@@ -621,6 +641,10 @@ class EEGOptimizer:
                     'zero'
                 ),
             }
+            if 'adjacency_propagation_normalization' in sim_results:
+                feasibility_details['adjacency_propagation_normalization'] = (
+                    sim_results['adjacency_propagation_normalization']
+                )
             if self.stimulation_model == "adjacency_activation":
                 feasibility_details.update({
                     'stimulation_activation_amount': stimulation_amplitude,
@@ -850,6 +874,10 @@ class EEGOptimizer:
             elif self.stimulation_model == "adjacency_activation_log_gain":
                 print(f"  Fixed log gain: {amplitude}")
                 print(f"  Log-gain neighbor scale: {self.log_gain_neighbor_scale}")
+                print(
+                    "  Adjacency propagation normalization: "
+                    f"{self.adjacency_propagation_normalization}"
+                )
             else:
                 print(f"  Fixed stimulation duration: {duration}")
                 print(f"  Fixed stimulation amplitude: {amplitude}")
@@ -1161,6 +1189,14 @@ class EEGOptimizer:
                 if self.stimulation_model == "adjacency_activation"
                 else None
             ),
+            'adjacency_propagation_normalization': (
+                self.adjacency_propagation_normalization
+                if self.stimulation_model in {
+                    "adjacency_activation",
+                    "adjacency_activation_log_gain",
+                }
+                else None
+            ),
             'log_gain_neighbor_scale': (
                 self.log_gain_neighbor_scale
                 if self.stimulation_model == "adjacency_activation_log_gain"
@@ -1409,6 +1445,7 @@ def create_optimizer_from_config(connectivity_matrices: Dict,
         stimulation_model=STIMULATION_MODEL,
         static_edge_scope=STATIC_STIMULATION_EDGE_SCOPE,
         adjacency_activation_neighbor_scale=ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+        adjacency_propagation_normalization=ADJACENCY_PROPAGATION_NORMALIZATION,
         log_gain_neighbor_scale=LOG_GAIN_NEIGHBOR_SCALE,
         log_gain_plasticity_exponent=LOG_GAIN_PLASTICITY_EXPONENT,
         log_gain_plasticity_fraction=LOG_GAIN_PLASTICITY_FRACTION,
