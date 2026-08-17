@@ -153,10 +153,6 @@ def _plot_band(
         healthy["pc1"], healthy["pc2"], s=26, alpha=0.24,
         color=GROUP_STYLE["Healthy"]["color"], label="Healthy baseline",
     )
-    axes[1].scatter(
-        patients["pc1"], patients["pc2"], s=24, alpha=0.15,
-        color=GROUP_STYLE["Patient"]["color"], label="All Patient baseline",
-    )
     patient_lookup = patients.set_index("subject_id")
     for _, row in optimized.iterrows():
         before = patient_lookup.loc[row["subject_id"]]
