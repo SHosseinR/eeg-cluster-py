@@ -127,6 +127,19 @@ plasticity exponent `1`, plasticity fraction `1`, and no patient rejection.
 Use `run_coherence_probability_pipeline.ps1 -SkipAnalysis` so cached artifacts
 are validated before optimization and analysis/classification are not rerun.
 
+The opt-in
+`tdbrain_coherence_surface_laplacian_adjacency_activation_log_gain_unnormalized_signed_no_rejection_logistic.toml`
+profile is a separate full TD-BRAIN analysis/classification/optimization run.
+It assigns the `standard_1005` template montage because the EEGLAB files carry
+NaN electrode coordinates, then applies MNE's spherical-spline surface
+Laplacian to continuous EEG after channel selection and before
+epoching/filtering. Its log-gain one-hop
+propagation uses the natural coherence weights with self-loops cleared, without
+dividing by spectral radius plus `0.01`. The profile has an isolated result
+tree and must not reuse the non-Laplacian coherence matrices, filtered epochs,
+or classifier bundles. Other profiles retain no Laplacian and spectral-radius
+one-hop normalization by default.
+
 Never silently change these values to make a test or figure look better. Configuration changes alter the scientific experiment and must be explicit in the handoff.
 
 ## Architecture map

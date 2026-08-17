@@ -22,6 +22,46 @@ DYNAMICS_FREE_STIMULATION_MODELS = {
     "adjacency_activation",
     "adjacency_activation_log_gain",
 }
+ADJACENCY_PROPAGATION_NORMALIZATIONS = {"none", "spectral_radius"}
+
+
+def prepare_adjacency_propagation_matrix(
+    adjacency_matrix: np.ndarray,
+    *,
+    normalization: str = "spectral_radius",
+    stability_constant: float = 0.01,
+) -> np.ndarray:
+    """Prepare the one-hop adjacency operator while clearing self-loops.
+
+    ``"spectral_radius"`` preserves the historical division by
+    ``max(abs(eigvals(A))) + stability_constant``. ``"none"`` uses the
+    connectivity values on their original scale. Neither mode changes channel
+    order, matrix orientation, or off-diagonal signs.
+    """
+
+    matrix = np.asarray(adjacency_matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(f"adjacency_matrix must be square; got {matrix.shape}")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("adjacency_matrix contains non-finite values")
+    mode = str(normalization).strip().lower()
+    if mode not in ADJACENCY_PROPAGATION_NORMALIZATIONS:
+        raise ValueError(
+            "normalization must be 'none' or 'spectral_radius'; "
+            f"got {mode!r}"
+        )
+    if mode == "spectral_radius":
+        constant = float(stability_constant)
+        if not np.isfinite(constant) or constant <= 0.0:
+            raise ValueError("stability_constant must be finite and positive")
+        return normalize_adjacency_matrix(
+            matrix,
+            stability_constant=constant,
+        )
+
+    propagation_matrix = matrix.copy()
+    np.fill_diagonal(propagation_matrix, 0.0)
+    return propagation_matrix
 
 
 def compute_band_rms(band_filtered_eeg: np.ndarray) -> np.ndarray:
@@ -77,12 +117,13 @@ def run_adjacency_activation_log_gain_stimulation(
     *,
     neighbor_scale: float = 1.0,
     stability_constant: float = 0.01,
+    adjacency_normalization: str = "spectral_radius",
 ) -> dict[str, np.ndarray | float | str | None]:
     """Apply multiplicative direct-plus-one-hop activation gain.
 
     For selected node ``k``, the spatial profile and activation ratio are
 
-    ``v = e_k + neighbor_scale * A_norm @ e_k``
+    ``v = e_k + neighbor_scale * A_propagation @ e_k``
 
     ``R = exp(log_gain * v)``
 
@@ -119,17 +160,15 @@ def run_adjacency_activation_log_gain_stimulation(
     spread_scale = float(neighbor_scale)
     if not np.isfinite(spread_scale) or spread_scale < 0.0:
         raise ValueError("neighbor_scale must be finite and non-negative")
-    normalization_constant = float(stability_constant)
-    if not np.isfinite(normalization_constant) or normalization_constant <= 0.0:
-        raise ValueError("stability_constant must be finite and positive")
-
-    normalized_matrix = normalize_adjacency_matrix(
+    normalization_mode = str(adjacency_normalization).strip().lower()
+    propagation_matrix = prepare_adjacency_propagation_matrix(
         matrix,
-        stability_constant=normalization_constant,
+        normalization=normalization_mode,
+        stability_constant=stability_constant,
     )
     unit_vector = np.zeros(matrix.shape[0], dtype=float)
     unit_vector[node] = 1.0
-    spatial_profile = unit_vector + spread_scale * (normalized_matrix @ unit_vector)
+    spatial_profile = unit_vector + spread_scale * (propagation_matrix @ unit_vector)
     with np.errstate(over="ignore", invalid="ignore"):
         activation_ratios = np.exp(gain * spatial_profile)
         final_state = baseline * activation_ratios
@@ -148,7 +187,11 @@ def run_adjacency_activation_log_gain_stimulation(
         "activation_change": activation_change,
         "activation_ratios": activation_ratios,
         "raw_activation_ratios": activation_ratios.copy(),
-        "normalized_matrix": normalized_matrix,
+        "propagation_matrix": propagation_matrix,
+        # Compatibility alias for consumers written before propagation became
+        # configurable. In "none" mode this matrix is deliberately unscaled.
+        "normalized_matrix": propagation_matrix,
+        "adjacency_propagation_normalization": normalization_mode,
         "baseline": baseline,
         "log_gain_spatial_profile": spatial_profile,
         "direct_log_gain_profile": float(spatial_profile[node]),
@@ -168,19 +211,20 @@ def run_adjacency_activation_stimulation(
     *,
     neighbor_scale: float = 1.0,
     stability_constant: float = 0.01,
+    adjacency_normalization: str = "spectral_radius",
 ) -> dict[str, np.ndarray | float | str | None]:
     """Compute direct-plus-one-hop activation without state-space dynamics.
 
     For node ``k``, this implements the finite activation change
 
-    ``delta_x = amount * (e_k + neighbor_scale * A_norm @ e_k)``
+    ``delta_x = amount * (e_k + neighbor_scale * A_propagation @ e_k)``
 
-    where ``A_norm`` uses the same spectral normalization as the original
-    state-space model and has a zero diagonal. Consequently, ``amount`` is
-    the signed activation change applied directly to the selected node.
-    Connected nodes receive one-hop changes proportional to column ``k`` of
-    the normalized adjacency matrix. No duration, leak, trajectory, or
-    higher-order adjacency powers are involved.
+    The propagation matrix always has a zero diagonal. It is either divided
+    by spectral radius plus the stability constant (the legacy default) or
+    kept on its original connectivity scale. Consequently, ``amount`` is the
+    signed activation change applied directly to the selected node. Connected
+    nodes receive one-hop changes proportional to column ``k``. No duration,
+    leak, trajectory, or higher-order adjacency powers are involved.
 
     The returned activation ratios use the original state-space ratio
     calculation and clipping contract, so callers can apply the unchanged
@@ -199,12 +243,15 @@ def run_adjacency_activation_stimulation(
     neighbor_scale
         Non-negative multiplier for the adjacency-scaled one-hop response.
     stability_constant
-        Positive constant used by the shared spectral normalization.
+        Positive constant used only by spectral-radius normalization.
+    adjacency_normalization
+        ``"spectral_radius"`` for the historical eigenvalue division or
+        ``"none"`` to preserve the original connectivity scale.
 
     Returns
     -------
     dict
-        Final activation, clipped and raw ratios, normalized adjacency, and
+        Final activation, clipped and raw ratios, propagation adjacency, and
         audit diagnostics. ``trajectory`` is always ``None``.
     """
 
@@ -233,21 +280,19 @@ def run_adjacency_activation_stimulation(
     spread_scale = float(neighbor_scale)
     if not np.isfinite(spread_scale) or spread_scale < 0.0:
         raise ValueError("neighbor_scale must be finite and non-negative")
-    normalization_constant = float(stability_constant)
-    if not np.isfinite(normalization_constant) or normalization_constant <= 0.0:
-        raise ValueError("stability_constant must be finite and positive")
-
-    normalized_matrix = normalize_adjacency_matrix(
+    normalization_mode = str(adjacency_normalization).strip().lower()
+    propagation_matrix = prepare_adjacency_propagation_matrix(
         matrix,
-        stability_constant=normalization_constant,
+        normalization=normalization_mode,
+        stability_constant=stability_constant,
     )
     direct_change = np.zeros(matrix.shape[0], dtype=float)
     direct_change[node] = amount
     neighbor_change = (
-        amount * spread_scale * normalized_matrix[:, node]
+        amount * spread_scale * propagation_matrix[:, node]
     )
-    # The shared normalization already clears the diagonal. Enforce the
-    # scientific contract explicitly in case its implementation changes.
+    # Propagation preparation clears the diagonal. Enforce the scientific
+    # contract explicitly in case its implementation changes.
     neighbor_change[node] = 0.0
     activation_change = direct_change + neighbor_change
     final_state = baseline + activation_change
@@ -267,7 +312,9 @@ def run_adjacency_activation_stimulation(
         "changed_activation_nodes": float(np.count_nonzero(activation_change)),
         "activation_ratios": activation_ratios,
         "raw_activation_ratios": raw_activation_ratios,
-        "normalized_matrix": normalized_matrix,
+        "propagation_matrix": propagation_matrix,
+        "normalized_matrix": propagation_matrix,
+        "adjacency_propagation_normalization": normalization_mode,
         "baseline": baseline,
         "stimulation_activation_amount": amount,
         "adjacency_activation_neighbor_scale": spread_scale,

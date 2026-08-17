@@ -15,12 +15,19 @@ from config import (
     CHANNEL_SOURCE_MONTAGE,
     CHANNEL_SELECTION_MONTAGE,
     CHANNEL_SELECTION_TARGETS,
+    SURFACE_LAPLACIAN_ENABLED,
+    SURFACE_LAPLACIAN_LAMBDA2,
+    SURFACE_LAPLACIAN_STIFFNESS,
+    SURFACE_LAPLACIAN_N_LEGENDRE_TERMS,
+    SURFACE_LAPLACIAN_SPHERE,
+    SURFACE_LAPLACIAN_MONTAGE,
 )
 from channel_metadata import (
     build_channel_metadata,
     select_nearest_channels,
     validate_channel_metadata,
 )
+from signal_processing import apply_surface_laplacian
 
 def load_subject_epochs(subject_folder):
     """
@@ -81,6 +88,18 @@ def load_subject_epochs(subject_folder):
                 print(f"    Target -> EGI: {channel_selection['target_to_channel']}")
 
             raw.pick(channel_selection['selected_channels'])
+
+        if SURFACE_LAPLACIAN_ENABLED:
+            raw = apply_surface_laplacian(
+                raw,
+                sphere=SURFACE_LAPLACIAN_SPHERE,
+                lambda2=SURFACE_LAPLACIAN_LAMBDA2,
+                stiffness=SURFACE_LAPLACIAN_STIFFNESS,
+                n_legendre_terms=SURFACE_LAPLACIAN_N_LEGENDRE_TERMS,
+                montage=SURFACE_LAPLACIAN_MONTAGE,
+                copy=False,
+            )
+            print("    Applied spherical-spline surface Laplacian")
         
         # Get data
         data = raw.get_data()

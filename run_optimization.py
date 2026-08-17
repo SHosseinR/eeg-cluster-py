@@ -27,6 +27,7 @@ from optimization_config import (
     STATIC_STIMULATION_EDGE_SCOPE, STIMULATION_TOTAL_CHANGE_BOUNDS,
     STIMULATION_ACTIVATION_AMOUNT_BOUNDS,
     ADJACENCY_ACTIVATION_NEIGHBOR_SCALE,
+    ADJACENCY_PROPAGATION_NORMALIZATION,
     LOG_GAIN_BOUNDS, LOG_GAIN_NEIGHBOR_SCALE,
     LOG_GAIN_PLASTICITY_EXPONENT, LOG_GAIN_PLASTICITY_FRACTION,
     STIMULATION_DURATION_BOUNDS, STIMULATION_AMPLITUDE_BOUNDS,
@@ -539,6 +540,10 @@ def verify_optimization_requirements(connectivity_matrices, network_measures):
         print("Duration and leak: not used")
     elif STIMULATION_MODEL == "adjacency_activation_log_gain":
         print(f"Log-gain neighbor scale: {LOG_GAIN_NEIGHBOR_SCALE}")
+        print(
+            "Adjacency propagation normalization: "
+            f"{ADJACENCY_PROPAGATION_NORMALIZATION}"
+        )
         print(f"Signed log-gain bounds: {LOG_GAIN_BOUNDS}")
         print(f"Plasticity exponent: {LOG_GAIN_PLASTICITY_EXPONENT}")
         print(f"Plasticity fraction: {LOG_GAIN_PLASTICITY_FRACTION}")

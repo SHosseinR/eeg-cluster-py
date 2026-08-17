@@ -71,6 +71,71 @@ CHANNEL_SELECTION_TARGETS = [
 # ============================================================================
 # SIGNAL PROCESSING PARAMETERS
 # ============================================================================
+PREPROCESSING_SETTINGS = DATASET_CONFIG.get("preprocessing", {})
+SURFACE_LAPLACIAN_SETTINGS = PREPROCESSING_SETTINGS.get(
+    "surface_laplacian", {}
+)
+if not isinstance(SURFACE_LAPLACIAN_SETTINGS, dict):
+    raise ValueError("preprocessing.surface_laplacian must be a TOML table")
+
+SURFACE_LAPLACIAN_ENABLED = SURFACE_LAPLACIAN_SETTINGS.get("enabled", False)
+if not isinstance(SURFACE_LAPLACIAN_ENABLED, bool):
+    raise ValueError("preprocessing.surface_laplacian.enabled must be boolean")
+SURFACE_LAPLACIAN_LAMBDA2 = float(
+    SURFACE_LAPLACIAN_SETTINGS.get("lambda2", 1e-5)
+)
+SURFACE_LAPLACIAN_STIFFNESS = float(
+    SURFACE_LAPLACIAN_SETTINGS.get("stiffness", 4.0)
+)
+SURFACE_LAPLACIAN_N_LEGENDRE_TERMS = int(
+    SURFACE_LAPLACIAN_SETTINGS.get("n_legendre_terms", 50)
+)
+SURFACE_LAPLACIAN_SPHERE = SURFACE_LAPLACIAN_SETTINGS.get("sphere", "auto")
+SURFACE_LAPLACIAN_MONTAGE = SURFACE_LAPLACIAN_SETTINGS.get("montage")
+if (
+    not np.isfinite(SURFACE_LAPLACIAN_LAMBDA2)
+    or not 0.0 <= SURFACE_LAPLACIAN_LAMBDA2 < 1.0
+):
+    raise ValueError(
+        "preprocessing.surface_laplacian.lambda2 must be finite and within [0, 1)"
+    )
+if (
+    not np.isfinite(SURFACE_LAPLACIAN_STIFFNESS)
+    or SURFACE_LAPLACIAN_STIFFNESS <= 0.0
+):
+    raise ValueError(
+        "preprocessing.surface_laplacian.stiffness must be finite and positive"
+    )
+if SURFACE_LAPLACIAN_N_LEGENDRE_TERMS <= 0:
+    raise ValueError(
+        "preprocessing.surface_laplacian.n_legendre_terms must be positive"
+    )
+if SURFACE_LAPLACIAN_MONTAGE is not None and (
+    not isinstance(SURFACE_LAPLACIAN_MONTAGE, str)
+    or not SURFACE_LAPLACIAN_MONTAGE.strip()
+):
+    raise ValueError(
+        "preprocessing.surface_laplacian.montage must be a non-empty MNE "
+        "montage name or omitted"
+    )
+if not (
+    SURFACE_LAPLACIAN_SPHERE == "auto"
+    or (
+        isinstance(SURFACE_LAPLACIAN_SPHERE, list)
+        and len(SURFACE_LAPLACIAN_SPHERE) == 4
+        and np.all(np.isfinite(SURFACE_LAPLACIAN_SPHERE))
+        and float(SURFACE_LAPLACIAN_SPHERE[3]) > 0.0
+    )
+):
+    raise ValueError(
+        "preprocessing.surface_laplacian.sphere must be 'auto' or four finite "
+        "values (x, y, z, radius) with a positive radius"
+    )
+if isinstance(SURFACE_LAPLACIAN_SPHERE, list):
+    SURFACE_LAPLACIAN_SPHERE = tuple(
+        float(value) for value in SURFACE_LAPLACIAN_SPHERE
+    )
+
 EPOCH_DURATION = 10.0  # seconds
 OVERLAP = 0.0  # No overlap between epochs
 

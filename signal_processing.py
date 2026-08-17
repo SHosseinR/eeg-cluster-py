@@ -2,9 +2,54 @@
 Signal processing utilities for EEG data
 """
 
+import mne
 import numpy as np
 from scipy import signal
 from config import EPOCH_DURATION, OVERLAP, FREQUENCY_BANDS
+
+
+def apply_surface_laplacian(
+    raw: mne.io.BaseRaw,
+    *,
+    sphere="auto",
+    lambda2: float = 1e-5,
+    stiffness: float = 4.0,
+    n_legendre_terms: int = 50,
+    montage: str | None = None,
+    copy: bool = True,
+) -> mne.io.BaseRaw:
+    """Apply MNE's spherical-spline surface Laplacian to continuous EEG.
+
+    Channel order and sample count are preserved. The input must have finite
+    EEG samples and usable electrode positions; MNE raises if the digitization
+    geometry is insufficient for the configured sphere.
+    """
+
+    if not isinstance(raw, mne.io.BaseRaw):
+        raise TypeError("raw must be an MNE Raw instance")
+    if not np.all(np.isfinite(raw.get_data())):
+        raise ValueError("Surface Laplacian input contains non-finite EEG samples")
+    working = raw.copy() if copy else raw
+    if montage is not None:
+        working.set_montage(
+            montage,
+            match_case=True,
+            on_missing="raise",
+            verbose="ERROR",
+        )
+    transformed = mne.preprocessing.compute_current_source_density(
+        working,
+        sphere=sphere,
+        lambda2=float(lambda2),
+        stiffness=float(stiffness),
+        n_legendre_terms=int(n_legendre_terms),
+        copy=False,
+        verbose="ERROR",
+    )
+    if not np.all(np.isfinite(transformed.get_data())):
+        raise ValueError("Surface Laplacian produced non-finite EEG samples")
+    return transformed
+
 
 def create_epochs(data, fs, epoch_duration=EPOCH_DURATION, overlap=OVERLAP):
     """
